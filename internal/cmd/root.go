@@ -2,6 +2,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/spf13/cobra"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/auth"
@@ -14,6 +16,8 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/skills"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/upgrade"
 	versioncmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/version"
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
+	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
 
 var (
@@ -22,35 +26,35 @@ var (
 	flagConfig  string
 )
 
-const usageTemplate = `사용법:{{if .Runnable}}
+const usageTemplate = `{{heading "사용법:"}}{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [명령]{{end}}{{if gt (len .Aliases) 0}}
 
-별칭:
+{{heading "별칭:"}}
   {{.NameAndAliases}}{{end}}{{if .HasExample}}
 
-예시:
+{{heading "예시:"}}
 {{.Example}}{{end}}{{if .HasAvailableSubCommands}}{{$cmds := .Commands}}{{if eq (len .Groups) 0}}
 
-사용 가능한 명령:{{range $cmds}}{{if (or .IsAvailableCommand (eq .Name "help"))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{else}}{{range $group := .Groups}}
+{{heading "사용 가능한 명령:"}}
+{{cmdList $cmds}}{{else}}{{range $group := .Groups}}
 
-{{.Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
+{{heading .Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
 
-추가 명령:{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
+{{heading "추가 명령:"}}{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
   {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
-플래그:
-{{.LocalFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasAvailableInheritedFlags}}
+{{heading "플래그:"}}
+{{.LocalFlags.FlagUsages | trimTrailingWhitespaces | colorFlags}}{{end}}{{if .HasAvailableInheritedFlags}}
 
-전역 플래그:
-{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces}}{{end}}{{if .HasHelpSubCommands}}
+{{heading "전역 플래그:"}}
+{{.InheritedFlags.FlagUsages | trimTrailingWhitespaces | colorFlags}}{{end}}{{if .HasHelpSubCommands}}
 
-추가 도움말:{{range .Commands}}{{if .IsAdditionalHelpTopicRunnable}}
+{{heading "추가 도움말:"}}{{range .Commands}}{{if .IsAdditionalHelpTopicRunnable}}
   {{rpad .CommandPath .CommandPathPadding}} {{.Short}}{{end}}{{end}}{{end}}{{if .HasAvailableSubCommands}}
 
-명령별 자세한 도움말은 "{{.CommandPath}} [명령] --help" 를 실행하세요.{{end}}
+명령별 자세한 도움말은 {{cyan "uq <명령> --help"}} 를 실행하세요.{{end}}
 `
 
 const helpTemplate = `{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}
@@ -60,15 +64,32 @@ const helpTemplate = `{{with (or .Long .Short)}}{{. | trimTrailingWhitespaces}}
 var rootCmd = &cobra.Command{
 	Use:   "uq",
 	Short: "un7qi3 사내 CLI",
-	Long: `uq는 un7qi3 사내 CLI입니다.
-
-온보딩, 레포 셋업, 시크릿, 배포, 운영 작업을 위한 LLM 호출 가능한 결정론적 도구입니다.
-주로 Claude Code가 호출하며, 사람도 사용할 수 있도록 친화적인 출력을 제공합니다.`,
+	Long: strings.Join([]string{
+		output.Desc("uq는 un7qi3 사내 CLI입니다."),
+		"",
+		output.Desc("온보딩, 레포 셋업, 시크릿, 배포, 운영 작업을 위한"),
+		output.Desc("LLM 호출 가능한 결정론적 도구입니다. 주로 Claude Code가 호출하며,"),
+		output.Desc("사람도 사용할 수 있도록 친화적인 출력을 제공합니다."),
+		"",
+		output.Heading("자주 쓰는 명령"),
+		output.HelpExample("uq doctor", "필수 도구 설치 점검"),
+		output.HelpExample("uq auth status", "gh / aws / gcloud 인증 상태"),
+		output.HelpExample("uq repo list", "un7qi3inc 레포 목록"),
+		output.HelpExample("uq repo clone <name>", "~/un7qi3/<name>에 클론"),
+	}, "\n"),
 	SilenceUsage:  true,
 	SilenceErrors: false,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		uqexec.SetVerbose(flagVerbose)
+	},
 }
 
 func init() {
+	cobra.AddTemplateFunc("heading", output.Heading)
+	cobra.AddTemplateFunc("cyan", output.Cyan)
+	cobra.AddTemplateFunc("colorFlags", output.ColorizeFlagUsages)
+	cobra.AddTemplateFunc("cmdList", renderCommandList)
+
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetHelpTemplate(helpTemplate)
 
@@ -96,10 +117,18 @@ func init() {
 }
 
 func newHelpCmd() *cobra.Command {
+	long := strings.Join([]string{
+		output.Desc("지정한 명령의 도움말을 표시합니다."),
+		output.Desc("인자를 생략하면 uq 전체 도움말을 표시합니다."),
+		"",
+		output.Heading("예시"),
+		output.HelpExample("uq help", "uq 도움말"),
+		output.HelpExample("uq help auth login", "특정 명령 도움말"),
+	}, "\n")
 	return &cobra.Command{
 		Use:   "help [명령]",
 		Short: "명령에 대한 도움말",
-		Long:  `지정한 명령에 대한 도움말을 표시합니다. 인자를 생략하면 uq의 도움말을 표시합니다.`,
+		Long:  long,
 		Run: func(c *cobra.Command, args []string) {
 			cmd, _, err := c.Root().Find(args)
 			if cmd == nil || err != nil {
@@ -114,16 +143,18 @@ func newHelpCmd() *cobra.Command {
 }
 
 func newCompletionCmd() *cobra.Command {
+	long := strings.Join([]string{
+		output.Desc("지정한 셸의 자동완성 스크립트를 표준 출력으로 생성합니다."),
+		"",
+		output.Heading("예시"),
+		output.HelpExample(`uq completion zsh > "${fpath[1]}/_uq"`, "zsh"),
+		output.HelpExample("uq completion bash > /usr/local/etc/bash_completion.d/uq", "bash"),
+		output.HelpExample("uq completion fish > ~/.config/fish/completions/uq.fish", "fish"),
+	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "completion [bash|zsh|fish|powershell]",
 		Short: "지정한 셸의 자동완성 스크립트 생성",
-		Long: `지정한 셸의 자동완성 스크립트를 표준 출력으로 생성합니다.
-
-zsh 예시:
-  uq completion zsh > "${fpath[1]}/_uq"
-
-bash 예시:
-  uq completion bash > /usr/local/etc/bash_completion.d/uq`,
+		Long:  long,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -142,6 +173,36 @@ bash 예시:
 		},
 	}
 	return cmd
+}
+
+// renderCommandList formats the subcommand listing block exactly like
+// cobra's default template, then colorizes command names.
+func renderCommandList(cmds []*cobra.Command) string {
+	padding := 0
+	visible := make([]*cobra.Command, 0, len(cmds))
+	for _, c := range cmds {
+		if !c.IsAvailableCommand() && c.Name() != "help" {
+			continue
+		}
+		visible = append(visible, c)
+		if l := len(c.Name()); l > padding {
+			padding = l
+		}
+	}
+	var b strings.Builder
+	for i, c := range visible {
+		name := c.Name()
+		pad := strings.Repeat(" ", padding-len(name))
+		b.WriteString("  ")
+		b.WriteString(output.Cyan(name))
+		b.WriteString(pad)
+		b.WriteString("  ")
+		b.WriteString(c.Short)
+		if i < len(visible)-1 {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
 }
 
 // Execute runs the root command.

@@ -1,6 +1,6 @@
 # 0002 — Phase 2: auth + repo 명령 구현
 
-**Status:** 시작전
+**Status:** 완료
 
 ## Context
 
