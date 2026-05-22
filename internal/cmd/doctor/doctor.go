@@ -48,7 +48,7 @@ type Report struct {
 func NewCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
-		Short: "Check required tools are installed",
+		Short: "필수 도구 설치 상태 점검",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			checks := buildChecks()
@@ -110,11 +110,11 @@ func printHuman(cmd *cobra.Command, results []Result, sum Summary) {
 		}
 		if !r.OK {
 			if r.Optional {
-				right = "not checked (optional)"
+				right = "점검 안 함 (선택)"
 			} else if r.Detail != "" {
 				right = r.Detail
 			} else {
-				right = "not installed"
+				right = "설치되지 않음"
 			}
 		} else if r.OK && r.Detail != "" {
 			right = fmt.Sprintf("%s (%s)", r.Version, r.Detail)
@@ -126,13 +126,9 @@ func printHuman(cmd *cobra.Command, results []Result, sum Summary) {
 	}
 	fmt.Fprintln(w)
 	if sum.Failed == 0 {
-		fmt.Fprintf(w, "All checks passed. (%d ok, %d optional)\n", sum.OK, sum.Optional)
+		fmt.Fprintf(w, "모든 점검 통과. (정상 %d개, 선택 %d개)\n", sum.OK, sum.Optional)
 	} else {
-		word := "issue"
-		if sum.Failed > 1 {
-			word = "issues"
-		}
-		fmt.Fprintf(w, "%d %s. Run the suggested command above, then `uq doctor` again.\n", sum.Failed, word)
+		fmt.Fprintf(w, "%d개 문제 발견. 위의 권장 명령을 실행한 뒤 `uq doctor`를 다시 실행하세요.\n", sum.Failed)
 	}
 }
 
@@ -176,7 +172,7 @@ func buildChecks() []Check {
 		{
 			Name:     "docker",
 			Optional: true,
-			Fix:      "Install Docker Desktop (optional)",
+			Fix:      "Docker Desktop 설치 (선택)",
 			Run:      dockerCheck,
 		},
 	}
@@ -221,14 +217,14 @@ func ghCheck() (bool, string, string) {
 	// Probe auth status — not fatal if unauthenticated, but report it.
 	statusOut, statusErr := exec.Command("gh", "auth", "status").CombinedOutput()
 	if statusErr != nil {
-		return true, ver, "not authenticated"
+		return true, ver, "인증 안 됨"
 	}
 	userRe := regexp.MustCompile(`(?:Logged in to [^\s]+ (?:as|account) |account )(\S+)`)
 	um := userRe.FindStringSubmatch(string(statusOut))
 	if len(um) >= 2 {
-		return true, ver, fmt.Sprintf("authenticated as %s", um[1])
+		return true, ver, fmt.Sprintf("%s 로 인증됨", um[1])
 	}
-	return true, ver, "authenticated"
+	return true, ver, "인증됨"
 }
 
 func sdkmanCheck() (bool, string, string) {
@@ -238,14 +234,13 @@ func sdkmanCheck() (bool, string, string) {
 	}
 	initScript := home + "/.sdkman/bin/sdkman-init.sh"
 	if _, err := os.Stat(initScript); err != nil {
-		return false, "", "not installed"
+		return false, "", "설치되지 않음"
 	}
-	// Try to read version from ~/.sdkman/var/version
 	verFile := home + "/.sdkman/var/version"
 	if data, err := os.ReadFile(verFile); err == nil {
 		return true, strings.TrimSpace(string(data)), ""
 	}
-	return true, "installed", ""
+	return true, "설치됨", ""
 }
 
 func javaCheck() (bool, string, string) {
@@ -298,7 +293,7 @@ func dockerCheck() (bool, string, string) {
 	}
 	// Probe daemon
 	if err := exec.Command("docker", "info").Run(); err != nil {
-		return true, ver, "daemon not running"
+		return true, ver, "데몬 실행 안 됨"
 	}
 	return true, ver, ""
 }

@@ -10,10 +10,10 @@ func newPullCmd() *cobra.Command {
 	var envName string
 	cmd := &cobra.Command{
 		Use:   "pull <repo>",
-		Short: "Pull secrets from AWS SSM into local files",
+		Short: "AWS SSM에서 시크릿을 로컬 파일로 가져오기",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "TODO: not yet implemented (Phase 0 stub)")
+			fmt.Fprintln(cmd.OutOrStderr(), "TODO: 아직 구현되지 않음 (Phase 0 stub)")
 			return nil
 		},
 	}

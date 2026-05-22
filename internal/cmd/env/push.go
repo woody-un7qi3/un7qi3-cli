@@ -14,10 +14,10 @@ func newPushCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "push <repo>",
-		Short: "Push local secrets up to AWS SSM",
+		Short: "로컬 시크릿을 AWS SSM에 업로드",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "TODO: not yet implemented (Phase 0 stub)")
+			fmt.Fprintln(cmd.OutOrStderr(), "TODO: 아직 구현되지 않음 (Phase 0 stub)")
 			return nil
 		},
 	}

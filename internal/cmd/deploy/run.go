@@ -14,10 +14,10 @@ func newRunCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "run <repo>",
-		Short: "Run a repo's deploy script (./build-<env>.sh or manifest cmd)",
+		Short: "레포 배포 스크립트 실행 (./build-<env>.sh 또는 매니페스트 cmd)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "TODO: not yet implemented (Phase 0 stub)")
+			fmt.Fprintln(cmd.OutOrStderr(), "TODO: 아직 구현되지 않음 (Phase 0 stub)")
 			return nil
 		},
 	}

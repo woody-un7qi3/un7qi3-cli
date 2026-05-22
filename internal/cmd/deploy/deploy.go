@@ -7,7 +7,7 @@ import "github.com/spf13/cobra"
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy",
-		Short: "Run deploy workflows declared in .uq.yml",
+		Short: ".uq.yml에 정의된 배포 워크플로 실행",
 	}
 	cmd.AddCommand(newRunCmd())
 	return cmd

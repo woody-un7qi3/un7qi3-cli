@@ -7,7 +7,7 @@ import "github.com/spf13/cobra"
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "env",
-		Short: "Manage repo secrets via AWS SSM (.env / .pem / .json)",
+		Short: "AWS SSM 기반 레포 시크릿 관리 (.env / .pem / .json)",
 	}
 	cmd.AddCommand(newPullCmd())
 	cmd.AddCommand(newPushCmd())

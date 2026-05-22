@@ -16,10 +16,10 @@ func NewCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "install <team>",
-		Short: "Clone a team's repos (TUI multi-select)",
+		Short: "팀 레포 일괄 클론 (TUI 다중 선택)",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "TODO: not yet implemented (Phase 0 stub)")
+			fmt.Fprintln(cmd.OutOrStderr(), "TODO: 아직 구현되지 않음 (Phase 0 stub)")
 			return nil
 		},
 	}

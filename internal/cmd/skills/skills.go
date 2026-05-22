@@ -11,7 +11,7 @@ import (
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "skills",
-		Short: "Install Claude Code skills bundled with uq",
+		Short: "uq에 포함된 Claude Code 스킬 설치",
 	}
 	cmd.AddCommand(newInstallCmd())
 	return cmd
@@ -20,9 +20,9 @@ func NewCmd() *cobra.Command {
 func newInstallCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "install",
-		Short: "Install bundled Claude Code skills into ~/.claude/skills/",
+		Short: "포함된 Claude Code 스킬을 ~/.claude/skills/에 설치",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "Phase 3 stub: not yet implemented")
+			fmt.Fprintln(cmd.OutOrStderr(), "Phase 3 stub: 아직 구현되지 않음")
 			return nil
 		},
 	}

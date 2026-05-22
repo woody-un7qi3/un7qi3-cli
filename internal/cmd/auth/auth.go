@@ -7,7 +7,7 @@ import "github.com/spf13/cobra"
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "auth",
-		Short: "Manage authentication (gh, aws sso)",
+		Short: "인증 관리 (gh, aws sso)",
 	}
 	cmd.AddCommand(newLoginCmd())
 	cmd.AddCommand(newLogoutCmd())

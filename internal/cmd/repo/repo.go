@@ -7,7 +7,7 @@ import "github.com/spf13/cobra"
 func NewCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "repo",
-		Short: "Work with un7qi3inc org repos",
+		Short: "un7qi3inc 조직 레포 작업",
 	}
 	cmd.AddCommand(newListCmd())
 	cmd.AddCommand(newCloneCmd())

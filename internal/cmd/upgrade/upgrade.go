@@ -11,9 +11,9 @@ import (
 func NewCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade uq to the latest release",
+		Short: "uq를 최신 릴리즈로 업그레이드",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "Phase 2: not yet released")
+			fmt.Fprintln(cmd.OutOrStderr(), "Phase 2: 아직 릴리즈되지 않음")
 			return nil
 		},
 	}

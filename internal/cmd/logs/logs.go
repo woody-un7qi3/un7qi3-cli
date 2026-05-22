@@ -19,10 +19,10 @@ func NewCmd() *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "logs <repo>",
-		Short: "Stream multiplexed logs from EB instances",
+		Short: "EB 인스턴스 멀티플렉스 로그 스트리밍",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Fprintln(cmd.OutOrStderr(), "TODO: not yet implemented (Phase 0 stub)")
+			fmt.Fprintln(cmd.OutOrStderr(), "TODO: 아직 구현되지 않음 (Phase 0 stub)")
 			return nil
 		},
 	}

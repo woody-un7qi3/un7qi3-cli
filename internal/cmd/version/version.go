@@ -14,7 +14,7 @@ import (
 func NewCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "version",
-		Short: "Show uq version",
+		Short: "uq 버전 표시",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if jsonOut {
