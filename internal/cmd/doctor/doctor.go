@@ -10,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
 
@@ -46,9 +47,20 @@ type Report struct {
 
 // NewCmd returns the `uq doctor` command.
 func NewCmd() *cobra.Command {
+	long := strings.Join([]string{
+		output.Desc("uq 사용에 필요한 외부 도구의 설치/인증 상태를 점검합니다."),
+		"",
+		output.Desc("점검 항목: git / gh / node / sdkman / java / aws / gcloud / docker(선택)."),
+		output.Yellow("--json") + output.Desc(" 으로 머신 친화 출력. 하나라도 실패면 exit 1."),
+		"",
+		output.Heading("예시"),
+		output.HelpExample("uq doctor", "모든 항목 점검"),
+		output.HelpExample("uq doctor --json | jq '.summary'", "통과/실패 카운트"),
+	}, "\n")
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "필수 도구 설치 상태 점검",
+		Long:  long,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			checks := buildChecks()
@@ -199,6 +211,8 @@ func versionCheck(bin string, args []string, pattern string) func() (bool, strin
 	}
 }
 
+// ghCheck delegates the auth-status portion to internal/auth.GhStatus so that
+// `uq doctor` and `uq auth status` share a single source of truth.
 func ghCheck() (bool, string, string) {
 	if _, err := exec.LookPath("gh"); err != nil {
 		return false, "", ""
@@ -214,15 +228,13 @@ func ghCheck() (bool, string, string) {
 		ver = m[1]
 	}
 
-	// Probe auth status — not fatal if unauthenticated, but report it.
-	statusOut, statusErr := exec.Command("gh", "auth", "status").CombinedOutput()
-	if statusErr != nil {
+	// Delegate auth probe.
+	s := authpkg.GhStatus()
+	if !s.OK {
 		return true, ver, "인증 안 됨"
 	}
-	userRe := regexp.MustCompile(`(?:Logged in to [^\s]+ (?:as|account) |account )(\S+)`)
-	um := userRe.FindStringSubmatch(string(statusOut))
-	if len(um) >= 2 {
-		return true, ver, fmt.Sprintf("%s 로 인증됨", um[1])
+	if s.User != "" {
+		return true, ver, fmt.Sprintf("%s 로 인증됨", s.User)
 	}
 	return true, ver, "인증됨"
 }

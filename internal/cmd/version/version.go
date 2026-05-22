@@ -3,6 +3,7 @@ package version
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -12,9 +13,19 @@ import (
 
 // NewCmd returns the `uq version` command.
 func NewCmd() *cobra.Command {
+	long := strings.Join([]string{
+		output.Desc("uq 바이너리 버전 / 커밋 / 빌드 시각을 표시합니다."),
+		"",
+		output.Desc("값은 빌드 시점에 ldflags 로 주입됩니다."),
+		"",
+		output.Heading("예시"),
+		output.HelpExample("uq version", "사람 친화 출력"),
+		output.HelpExample("uq version --json", "JSON"),
+	}, "\n")
 	return &cobra.Command{
 		Use:   "version",
 		Short: "uq 버전 표시",
+		Long:  long,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			jsonOut, _ := cmd.Flags().GetBool("json")
 			if jsonOut {
