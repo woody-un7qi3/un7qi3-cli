@@ -9,5 +9,6 @@
 
 repos:
   forceteller-api: [develop, master]
+  forceteller-admin: [develop, master]
 
 defaults: [main]
