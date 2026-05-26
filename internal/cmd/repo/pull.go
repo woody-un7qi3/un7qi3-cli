@@ -117,6 +117,20 @@ func chooseRemote(dir string) string {
 	return "origin"
 }
 
+// lastCommitLine returns a one-line summary of ref's tip:
+// "<short-hash> <subject> (<author>, <relative-time>)". Empty string on error.
+func lastCommitLine(dir, ref string) string {
+	out, err := uqexec.RunIn(dir, "git", "log", "-1",
+		"--no-decorate",
+		"--pretty=format:%h %s (%an, %ar)",
+		ref,
+	)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // branchSHA returns the short commit hash that ref points to.
 func branchSHA(dir, ref string) (string, error) {
 	out, err := uqexec.RunIn(dir, "git", "rev-parse", "--short", ref)
@@ -126,12 +140,19 @@ func branchSHA(dir, ref string) (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// printIncoming writes the commits between before..after in oneline form,
-// capped at maxLog entries. Silent when before == after.
-func printIncoming(w interface{ Write(p []byte) (int, error) }, dir, before, after string) {
-	const maxLog = 10
+// printBranchResult renders one branch's pull result in compact form.
+//   - up-to-date  →  "  ✓ <branch>  최신 — <hash> <subj> (<author>, <when>)"
+//   - new commits →  "  ✓ <branch>  N개 새 커밋  before..after"
+//                    followed by oneline log entries indented further.
+func printBranchResult(w interface{ Write(p []byte) (int, error) }, dir, branch, before, after string) {
+	const maxLog = 5
 	if before == "" || after == "" || before == after {
-		fmt.Fprintf(w, "  %s\n", output.Dim("이미 최신"))
+		tip := lastCommitLine(dir, branch)
+		if tip == "" {
+			fmt.Fprintf(w, "  %s %s  %s\n", output.Green("✓"), branch, output.Dim("최신"))
+		} else {
+			fmt.Fprintf(w, "  %s %s  %s\n", output.Green("✓"), branch, output.Dim("최신 — "+tip))
+		}
 		return
 	}
 	out, err := uqexec.RunIn(dir, "git", "log",
@@ -140,16 +161,19 @@ func printIncoming(w interface{ Write(p []byte) (int, error) }, dir, before, aft
 		fmt.Sprintf("%s..%s", before, after),
 	)
 	if err != nil {
-		fmt.Fprintf(w, "  %s log 조회 실패: %v\n", output.Yellow("⚠"), err)
+		fmt.Fprintf(w, "  %s %s  %s\n", output.Yellow("⚠"), branch, output.Dim(fmt.Sprintf("log 조회 실패: %v", err)))
 		return
 	}
 	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
 	total := len(lines)
+	fmt.Fprintf(w, "  %s %s  %s\n",
+		output.Green("✓"), branch,
+		output.Dim(fmt.Sprintf("%d개 새 커밋  %s..%s", total, before, after)),
+	)
 	shown := lines
 	if total > maxLog {
 		shown = lines[:maxLog]
 	}
-	fmt.Fprintf(w, "  %s\n", output.Dim(fmt.Sprintf("%s..%s  %d개 새 커밋", before, after, total)))
 	for _, line := range shown {
 		fmt.Fprintf(w, "    %s\n", output.Dim(line))
 	}
@@ -204,9 +228,7 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 	}
 
 	remote := chooseRemote(dir)
-	if remote != "origin" {
-		fmt.Fprintf(w, "%s\n", output.Dim(fmt.Sprintf("(remote: %s)", remote)))
-	}
+	fmt.Fprintf(w, "%s %s\n", name, output.Dim(fmt.Sprintf("← %s", remote)))
 
 	stashed := false
 	dirty, err := isDirty(dir)
@@ -248,20 +270,19 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 
 	var succeeded, failed []string
 	for _, br := range branches {
-		fmt.Fprintf(w, "%s %s\n", output.Cyan("→"), br)
 		if _, err := uqexec.RunIn(dir, "git", "checkout", br); err != nil {
-			fmt.Fprintf(w, "  %s checkout 실패: %v\n", output.Red("✗"), err)
+			fmt.Fprintf(w, "  %s %s  %s\n", output.Red("✗"), br, output.Dim(fmt.Sprintf("checkout 실패: %v", err)))
 			failed = append(failed, br)
 			continue
 		}
 		before, _ := branchSHA(dir, br)
 		if _, err := uqexec.RunIn(dir, "git", "pull", "--ff-only", remote, br); err != nil {
-			fmt.Fprintf(w, "  %s pull --ff-only 실패 (diverged?): %v\n", output.Red("✗"), err)
+			fmt.Fprintf(w, "  %s %s  %s\n", output.Red("✗"), br, output.Dim("pull --ff-only 실패 (diverged?)"))
 			failed = append(failed, br)
 			continue
 		}
 		after, _ := branchSHA(dir, br)
-		printIncoming(w, dir, before, after)
+		printBranchResult(w, dir, br, before, after)
 		succeeded = append(succeeded, br)
 	}
 
@@ -278,12 +299,11 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 		}
 	}
 
-	fmt.Fprintf(w, "\n%s 성공 %d (%s)  실패 %d (%s)\n",
-		output.Bold("요약:"),
-		len(succeeded), strings.Join(succeeded, ", "),
-		len(failed), strings.Join(failed, ", "),
-	)
 	if len(failed) > 0 {
+		fmt.Fprintf(w, "\n%s 성공 %d  실패 %d (%s)\n",
+			output.Bold("요약:"),
+			len(succeeded), len(failed), strings.Join(failed, ", "),
+		)
 		return fmt.Errorf("일부 브랜치 풀 실패")
 	}
 	return nil
