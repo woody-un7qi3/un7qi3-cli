@@ -20,6 +20,7 @@ type dirtyChoice string
 
 const (
 	dirtyStash dirtyChoice = "stash"
+	dirtyReset dirtyChoice = "reset"
 	dirtySkip  dirtyChoice = "skip"
 	dirtyAbort dirtyChoice = "abort"
 )
@@ -29,6 +30,7 @@ func newPullCmd() *cobra.Command {
 		branchOverride []string
 		currentOnly    bool
 		reset          bool
+		yes            bool
 	)
 	long := strings.Join([]string{
 		output.Desc("로컬 클론된 레포의 설정된 브랜치를 최신으로 동기화합니다."),
@@ -37,14 +39,17 @@ func newPullCmd() *cobra.Command {
 		output.Desc("매핑이 없는 레포는 defaults(") + output.Yellow("[main]") + output.Desc(")가 적용됩니다."),
 		output.Desc("워킹 트리가 더티면 stash/skip/abort 중 선택할 수 있습니다."),
 		"",
-		output.Desc(output.Yellow("--reset")+" 은 각 브랜치를 원격 상태로 강제 동기화합니다 (로컬 커밋 버림)."),
-		output.Desc("uncommitted 변경은 ") + output.Cyan("git stash") + output.Desc(" 로 백업되어 ") + output.Cyan("git stash pop") + output.Desc(" 으로 복구 가능."),
+		output.Desc(output.Yellow("--reset")+" 은 각 브랜치를 원격 상태로 강제 동기화합니다 (파괴적):"),
+		output.Desc("  · ") + output.Cyan("git reset --hard <remote>/<branch>") + output.Desc(" — 로컬 커밋 + 추적 변경 모두 버림"),
+		output.Desc("  · ") + output.Cyan("git clean -fd") + output.Desc(" — untracked 파일/디렉토리 삭제 (gitignored는 보존)"),
+		output.Desc("  · 실행 전 확인 prompt. ") + output.Yellow("--yes") + output.Desc(" 로 스킵 (스크립트/CI용)"),
 		"",
 		output.Heading("예시"),
 		output.HelpExample("uq repo pull forceteller-api", "설정된 브랜치 전부 (develop, master)"),
 		output.HelpExample("uq repo pull forceteller-api --current", "현재 브랜치만"),
 		output.HelpExample("uq repo pull forceteller-api --branches main", "설정 무시"),
-		output.HelpExample("uq repo pull forceteller-api --reset", "원격 상태로 강제 동기화"),
+		output.HelpExample("uq repo pull forceteller-api --reset", "원격 상태로 강제 동기화 (확인)"),
+		output.HelpExample("uq repo pull forceteller-api --reset --yes", "확인 없이 즉시"),
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "pull <name>",
@@ -75,7 +80,7 @@ func newPullCmd() *cobra.Command {
 				os.Exit(1)
 			}
 
-			if err := pullBranches(cmd, dir, name, branches, reset); err != nil {
+			if err := pullBranches(cmd, dir, name, branches, reset, yes); err != nil {
 				fmt.Fprintln(os.Stderr, err)
 				os.Exit(1)
 			}
@@ -84,7 +89,8 @@ func newPullCmd() *cobra.Command {
 	}
 	cmd.Flags().StringSliceVar(&branchOverride, "branches", nil, "설정 무시하고 지정한 브랜치만")
 	cmd.Flags().BoolVar(&currentOnly, "current", false, "현재 체크아웃된 브랜치만")
-	cmd.Flags().BoolVar(&reset, "reset", false, "각 브랜치를 원격 상태로 강제 동기화 (로컬 커밋 버림). uncommitted 변경은 자동 stash.")
+	cmd.Flags().BoolVar(&reset, "reset", false, "각 브랜치를 원격 상태로 강제 동기화 (파괴적). 로컬 커밋/변경/untracked 모두 삭제. 확인 prompt 있음.")
+	cmd.Flags().BoolVar(&yes, "yes", false, "확인 prompt 스킵 (--reset 비대화형용)")
 	cmd.MarkFlagsMutuallyExclusive("branches", "current")
 	return cmd
 }
@@ -200,20 +206,82 @@ func currentBranch(dir string) (string, error) {
 	return br, nil
 }
 
-func isDirty(dir string) (bool, error) {
+// dirtyCount returns the number of changed entries reported by
+// `git status --porcelain`. Zero means clean.
+func dirtyCount(dir string) (int, error) {
 	out, err := uqexec.RunIn(dir, "git", "status", "--porcelain")
 	if err != nil {
-		return false, err
+		return 0, err
 	}
-	return len(strings.TrimSpace(string(out))) > 0, nil
+	trimmed := strings.TrimSpace(string(out))
+	if trimmed == "" {
+		return 0, nil
+	}
+	return len(strings.Split(trimmed, "\n")), nil
 }
 
-func askDirty(name string) (dirtyChoice, error) {
+// resolveDirtyChoice picks the action to take based on flags + dirty state.
+//   - --reset 명시: reset (TTY에서는 한 번 더 확인, --yes 면 스킵)
+//   - clean working tree: stash (no-op 의미 — 그냥 pull 진행)
+//   - dirty + TTY: askDirty prompt
+//   - dirty + non-TTY: skip (실수 방지)
+func resolveDirtyChoice(w interface{ Write(p []byte) (int, error) }, name string, dirtyN int, reset, yes bool) (dirtyChoice, error) {
+	if reset {
+		if !yes {
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				fmt.Fprintf(w, "%s --reset 은 확인 prompt가 필요합니다. 비대화형 환경에서는 --yes 추가\n",
+					output.Red("✗"))
+				return dirtyAbort, fmt.Errorf("--reset --yes 필요")
+			}
+			ok, err := confirmReset(name, dirtyN)
+			if err != nil {
+				return "", err
+			}
+			if !ok {
+				return dirtyAbort, nil
+			}
+		}
+		return dirtyReset, nil
+	}
+	if dirtyN == 0 {
+		return dirtyStash, nil // no-op, just proceed to pull
+	}
+	if !term.IsTerminal(int(os.Stdin.Fd())) {
+		fmt.Fprintf(w, "  %s %s\n",
+			output.Yellow("⚠"),
+			output.Dim(fmt.Sprintf("워킹 트리 더티 (%d개) — 비대화형이라 건너뜁니다", dirtyN)))
+		return dirtySkip, nil
+	}
+	return askDirty(name, dirtyN)
+}
+
+func confirmReset(name string, dirtyN int) (bool, error) {
+	var ok bool
+	title := fmt.Sprintf("%s를 원격 상태로 강제 동기화합니다", name)
+	desc := "로컬 커밋과 추적 변경 + untracked 파일 모두 삭제됩니다. gitignored는 보존."
+	if dirtyN > 0 {
+		desc = fmt.Sprintf("로컬 변경 %d개 + 로컬 커밋 모두 삭제됩니다. gitignored는 보존.", dirtyN)
+	}
+	if err := huh.NewConfirm().
+		Title(title).
+		Description(desc).
+		Affirmative("진행").
+		Negative("취소").
+		Value(&ok).
+		Run(); err != nil {
+		return false, err
+	}
+	return ok, nil
+}
+
+func askDirty(name string, dirtyCount int) (dirtyChoice, error) {
 	var choice string
+	title := fmt.Sprintf("%s: 커밋되지 않은 변경 %d개", name, dirtyCount)
 	err := huh.NewSelect[string]().
-		Title(fmt.Sprintf("%s: 커밋되지 않은 변경이 있습니다", name)).
+		Title(title).
 		Options(
-			huh.NewOption("stash 후 pull, 끝나면 pop", string(dirtyStash)),
+			huh.NewOption("stash 후 pull, 끝나면 pop (변경 보존)", string(dirtyStash)),
+			huh.NewOption("reset — 변경/로컬 커밋 모두 버리고 원격 상태로", string(dirtyReset)),
 			huh.NewOption("이 레포 건너뛰기", string(dirtySkip)),
 			huh.NewOption("전체 중단", string(dirtyAbort)),
 		).
@@ -225,7 +293,7 @@ func askDirty(name string) (dirtyChoice, error) {
 	return dirtyChoice(choice), nil
 }
 
-func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset bool) error {
+func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset, yes bool) error {
 	w := cmd.OutOrStderr()
 
 	original, err := currentBranch(dir)
@@ -234,57 +302,48 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 	}
 
 	remote := chooseRemote(dir)
-	header := fmt.Sprintf("← %s", remote)
-	if reset {
-		header += " " + output.Yellow("[reset]")
-	}
-	fmt.Fprintf(w, "%s %s\n", name, output.Dim(header))
+	fmt.Fprintf(w, "%s %s\n", name, output.Dim(fmt.Sprintf("← %s", remote)))
 
-	stashed := false
-	dirty, err := isDirty(dir)
+	dirtyN, err := dirtyCount(dir)
 	if err != nil {
 		return err
 	}
-	if dirty {
-		// --reset: 무조건 자동 stash (의도가 명시적이므로 prompt 생략)
-		if reset {
-			if _, err := uqexec.RunIn(dir, "git", "stash", "push", "-u", "-m", "uq repo pull --reset"); err != nil {
-				return fmt.Errorf("git stash 실패: %w", err)
-			}
-			stashed = true
-			fmt.Fprintf(w, "  %s\n", output.Dim("(uq) uncommitted 변경 stash됨 — 복구: git stash pop"))
-		} else {
-			var choice dirtyChoice
-			if !term.IsTerminal(int(os.Stdin.Fd())) {
-				fmt.Fprintf(w, "%s %s 워킹 트리가 더티 — 비대화형 환경이라 건너뜁니다\n",
-					output.Yellow("⚠"), name)
-				return nil
-			}
-			var derr error
-			choice, derr = askDirty(name)
-			if derr != nil {
-				return derr
-			}
-			switch choice {
-			case dirtyAbort:
-				fmt.Fprintln(w, "중단됨.")
-				return nil
-			case dirtySkip:
-				fmt.Fprintf(w, "%s 건너뜀.\n", name)
-				return nil
-			case dirtyStash:
-				if _, err := uqexec.RunIn(dir, "git", "stash", "push", "-u", "-m", "uq repo pull"); err != nil {
-					return fmt.Errorf("git stash 실패: %w", err)
-				}
-				stashed = true
-				fmt.Fprintf(w, "%s stash 완료\n", output.Dim("(uq)"))
-			}
-		}
+
+	choice, err := resolveDirtyChoice(w, name, dirtyN, reset, yes)
+	if err != nil {
+		return err
+	}
+	switch choice {
+	case dirtyAbort:
+		fmt.Fprintln(w, "중단됨.")
+		return nil
+	case dirtySkip:
+		fmt.Fprintf(w, "  %s 건너뜀.\n", output.Dim("(uq)"))
+		return nil
 	}
 
-	// 한 번 전체 fetch.
+	// fetch 한 번.
 	if _, err := uqexec.RunIn(dir, "git", "fetch", remote); err != nil {
 		return fmt.Errorf("git fetch %s 실패: %w", remote, err)
+	}
+
+	stashed := false
+	if choice == dirtyStash && dirtyN > 0 {
+		if _, err := uqexec.RunIn(dir, "git", "stash", "push", "-u", "-m", "uq repo pull"); err != nil {
+			return fmt.Errorf("git stash 실패: %w", err)
+		}
+		stashed = true
+		fmt.Fprintf(w, "  %s\n", output.Dim(fmt.Sprintf("(uq) 변경 %d개 stash됨 — 풀 끝나면 자동 복원", dirtyN)))
+	}
+	if choice == dirtyReset && dirtyN > 0 {
+		// untracked + tracked 모두 제거. gitignored는 보존.
+		if _, err := uqexec.RunIn(dir, "git", "reset", "--hard", "HEAD"); err != nil {
+			return fmt.Errorf("git reset --hard 실패: %w", err)
+		}
+		if _, err := uqexec.RunIn(dir, "git", "clean", "-fd"); err != nil {
+			return fmt.Errorf("git clean -fd 실패: %w", err)
+		}
+		fmt.Fprintf(w, "  %s\n", output.Dim(fmt.Sprintf("(uq) 로컬 변경 %d개 삭제됨 (reset --hard + clean -fd)", dirtyN)))
 	}
 
 	var succeeded, failed []string
@@ -295,7 +354,7 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 			continue
 		}
 		before, _ := branchSHA(dir, br)
-		if reset {
+		if choice == dirtyReset {
 			remoteRef := fmt.Sprintf("%s/%s", remote, br)
 			if _, err := uqexec.RunIn(dir, "git", "reset", "--hard", remoteRef); err != nil {
 				fmt.Fprintf(w, "  %s %s  %s\n", output.Red("✗"), br, output.Dim(fmt.Sprintf("reset --hard %s 실패: %v", remoteRef, err)))
@@ -304,7 +363,7 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 			}
 		} else {
 			if _, err := uqexec.RunIn(dir, "git", "pull", "--ff-only", remote, br); err != nil {
-				fmt.Fprintf(w, "  %s %s  %s\n", output.Red("✗"), br, output.Dim("pull --ff-only 실패 (diverged?) — --reset 으로 강제 가능"))
+				fmt.Fprintf(w, "  %s %s  %s\n", output.Red("✗"), br, output.Dim("pull --ff-only 실패 (diverged?) — --reset 으로 강제"))
 				failed = append(failed, br)
 				continue
 			}
@@ -320,16 +379,12 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 	}
 
 	if stashed {
-		if reset {
-			// --reset 의도가 명시적이므로 자동 pop 하지 않음.
-			// 사용자가 필요하면 `git stash pop` 으로 직접 복구.
-			fmt.Fprintf(w, "  %s\n", output.Dim("(uq) 백업된 stash 보존 — 복구: git stash pop / 폐기: git stash drop"))
+		if _, err := uqexec.RunIn(dir, "git", "stash", "pop"); err != nil {
+			fmt.Fprintf(w, "  %s stash pop 실패: %v\n  %s\n",
+				output.Red("✗"), err,
+				output.Dim("`git stash list` 로 직접 복원하세요"))
 		} else {
-			if _, err := uqexec.RunIn(dir, "git", "stash", "pop"); err != nil {
-				fmt.Fprintf(w, "%s stash pop 실패: %v\n  `git stash list` 로 직접 복원하세요\n", output.Red("✗"), err)
-			} else {
-				fmt.Fprintf(w, "%s stash 복원 완료\n", output.Dim("(uq)"))
-			}
+			fmt.Fprintf(w, "  %s\n", output.Dim("(uq) stash 복원 완료"))
 		}
 	}
 
