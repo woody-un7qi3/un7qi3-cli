@@ -6,6 +6,7 @@ require (
 	github.com/charmbracelet/huh v1.0.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/term v0.43.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (
