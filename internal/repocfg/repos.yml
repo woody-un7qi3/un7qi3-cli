@@ -4,11 +4,41 @@
 #        첫 번째 = primary. 풀이 끝나면 원래 브랜치로 복귀하지만, 명령 안에서
 #        primary가 기준 역할을 한다.
 # defaults: 위 매핑에 없는 레포의 fallback 브랜치 목록.
+# runs:   `uq run <repo>[:profile]` 이 띄울 로컬 실행 프로파일.
+#         현재 체크아웃된 브랜치는 건드리지 않는다 — release/x.y, feature/...
+#         어디서든 그대로 실행한다. cmd 는 셸 해석 없이 argv 그대로.
 #
 # 추가/수정: 이 파일을 편집하고 `make install` 로 재빌드하면 즉시 반영.
 
 repos:
   forceteller-api: [develop, master]
   forceteller-admin: [develop, master]
+  forceteller-app: [main]
 
 defaults: [main]
+
+runs:
+  forceteller-app:
+    default: app3
+    profiles:
+      app3:
+        cmd: ["yarn", "start:app3"]
+        node: "16"
+        url: "http://localhost:3100"
+        env:
+          YARN_IGNORE_NODE: "1"
+
+  forceteller-admin:
+    default: local
+    profiles:
+      local:
+        node: "16"
+        procs:
+          - name: back
+            cwd: back-end
+            cmd: ["npm", "run", "local"]
+            url: "http://localhost:3000"
+          - name: front
+            cwd: front-end/workspace
+            cmd: ["npm", "run", "local"]
+            url: "http://localhost:4200"

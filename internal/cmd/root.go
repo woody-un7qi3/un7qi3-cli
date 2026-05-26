@@ -13,6 +13,7 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/install"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/logs"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/repo"
+	runcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/run"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/skills"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/upgrade"
 	versioncmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/version"
@@ -105,6 +106,7 @@ func init() {
 	rootCmd.AddCommand(doctor.NewCmd())
 	rootCmd.AddCommand(install.NewCmd())
 	rootCmd.AddCommand(repo.NewCmd())
+	rootCmd.AddCommand(runcmd.NewCmd())
 	rootCmd.AddCommand(auth.NewCmd())
 	rootCmd.AddCommand(envcmd.NewCmd())
 	rootCmd.AddCommand(deploy.NewCmd())

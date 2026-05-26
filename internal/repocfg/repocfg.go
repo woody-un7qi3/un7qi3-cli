@@ -19,6 +19,42 @@ var configBytes []byte
 type Config struct {
 	Repos    map[string][]string `yaml:"repos"`
 	Defaults []string            `yaml:"defaults"`
+	Runs     map[string]RepoRuns `yaml:"runs"`
+}
+
+// RepoRuns groups the run profiles registered for a single repo.
+type RepoRuns struct {
+	Default  string             `yaml:"default"`
+	Profiles map[string]Profile `yaml:"profiles"`
+}
+
+// Profile describes how to launch one or more commands for a repo.
+//
+// Exactly one of Cmd or Procs must be set:
+//   - Cmd:   single foreground process (repo root as cwd).
+//   - Procs: multiple concurrent processes, each with its own cwd inside the
+//     repo. Their stdout/stderr are interleaved with a "[name] " prefix.
+//
+// Node, when set, names a Node runtime version that `uq run` prepends to PATH
+// before exec. Env is merged on top of the inherited environment and applies
+// to every process (Cmd or all Procs).
+type Profile struct {
+	Cmd   []string          `yaml:"cmd,omitempty"`
+	Procs []Proc            `yaml:"procs,omitempty"`
+	Node  string            `yaml:"node,omitempty"`
+	Env   map[string]string `yaml:"env,omitempty"`
+	// URL is the address the dev server listens on (single-cmd profiles).
+	// Printed in the header so users know where to navigate once compile is done.
+	URL string `yaml:"url,omitempty"`
+}
+
+// Proc is one of several concurrent processes in a multi-proc profile.
+// Cwd is a path relative to the repo root; empty means the repo root itself.
+type Proc struct {
+	Name string   `yaml:"name"`
+	Cwd  string   `yaml:"cwd,omitempty"`
+	Cmd  []string `yaml:"cmd"`
+	URL  string   `yaml:"url,omitempty"`
 }
 
 var (
@@ -47,4 +83,77 @@ func (c *Config) BranchesFor(name string) []string {
 		return br
 	}
 	return c.Defaults
+}
+
+// ProfileFor resolves a run profile for repo by name.
+//
+// Selection rules:
+//   - name == "" and Default is set → Default
+//   - name == "" and Default is empty but exactly one profile exists → that one
+//   - otherwise the explicitly-named profile (or an error listing available ones)
+//
+// The returned string is the resolved profile name (useful for status output).
+func (c *Config) ProfileFor(repo, name string) (Profile, string, error) {
+	runs, ok := c.Runs[repo]
+	if !ok || len(runs.Profiles) == 0 {
+		return Profile{}, "", fmt.Errorf("'%s' 에 등록된 실행 프로파일이 없습니다 — repos.yml 의 runs: 블록을 확인하세요", repo)
+	}
+	if name == "" {
+		if runs.Default != "" {
+			name = runs.Default
+		} else if len(runs.Profiles) == 1 {
+			for k := range runs.Profiles {
+				name = k
+			}
+		} else {
+			return Profile{}, "", fmt.Errorf("'%s' 에 default 프로파일이 없습니다 — 명시하세요. 사용 가능: %s", repo, joinKeys(runs.Profiles))
+		}
+	}
+	p, ok := runs.Profiles[name]
+	if !ok {
+		return Profile{}, "", fmt.Errorf("'%s' 에 프로파일 '%s' 가 없습니다 — 사용 가능: %s", repo, name, joinKeys(runs.Profiles))
+	}
+	hasCmd := len(p.Cmd) > 0
+	hasProcs := len(p.Procs) > 0
+	switch {
+	case !hasCmd && !hasProcs:
+		return Profile{}, "", fmt.Errorf("'%s:%s' 프로파일에 cmd 도 procs 도 없습니다", repo, name)
+	case hasCmd && hasProcs:
+		return Profile{}, "", fmt.Errorf("'%s:%s' 프로파일에 cmd 와 procs 가 동시에 정의됨 — 하나만", repo, name)
+	}
+	if hasProcs {
+		for i, pr := range p.Procs {
+			if pr.Name == "" {
+				return Profile{}, "", fmt.Errorf("'%s:%s' procs[%d] 의 name 이 비어 있습니다", repo, name, i)
+			}
+			if len(pr.Cmd) == 0 {
+				return Profile{}, "", fmt.Errorf("'%s:%s' procs[%s] 의 cmd 가 비어 있습니다", repo, name, pr.Name)
+			}
+		}
+	}
+	return p, name, nil
+}
+
+func joinKeys(m map[string]Profile) string {
+	if len(m) == 0 {
+		return "(없음)"
+	}
+	names := make([]string, 0, len(m))
+	for k := range m {
+		names = append(names, k)
+	}
+	// stable for tests
+	for i := 1; i < len(names); i++ {
+		for j := i; j > 0 && names[j-1] > names[j]; j-- {
+			names[j-1], names[j] = names[j], names[j-1]
+		}
+	}
+	out := ""
+	for i, n := range names {
+		if i > 0 {
+			out += ", "
+		}
+		out += n
+	}
+	return out
 }
