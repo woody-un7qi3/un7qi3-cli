@@ -101,6 +101,63 @@ func resolveBranches(name string, override []string, currentOnly bool, dir strin
 	return cfg.BranchesFor(name), nil
 }
 
+// chooseRemote returns "upstream" if that remote exists (fork workflow),
+// otherwise "origin". This mirrors the convention where personal forks
+// live at origin and the canonical org repo lives at upstream.
+func chooseRemote(dir string) string {
+	out, err := uqexec.RunIn(dir, "git", "remote")
+	if err != nil {
+		return "origin"
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if strings.TrimSpace(line) == "upstream" {
+			return "upstream"
+		}
+	}
+	return "origin"
+}
+
+// branchSHA returns the short commit hash that ref points to.
+func branchSHA(dir, ref string) (string, error) {
+	out, err := uqexec.RunIn(dir, "git", "rev-parse", "--short", ref)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// printIncoming writes the commits between before..after in oneline form,
+// capped at maxLog entries. Silent when before == after.
+func printIncoming(w interface{ Write(p []byte) (int, error) }, dir, before, after string) {
+	const maxLog = 10
+	if before == "" || after == "" || before == after {
+		fmt.Fprintf(w, "  %s\n", output.Dim("이미 최신"))
+		return
+	}
+	out, err := uqexec.RunIn(dir, "git", "log",
+		"--no-decorate",
+		"--pretty=format:%h %s (%an, %ar)",
+		fmt.Sprintf("%s..%s", before, after),
+	)
+	if err != nil {
+		fmt.Fprintf(w, "  %s log 조회 실패: %v\n", output.Yellow("⚠"), err)
+		return
+	}
+	lines := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	total := len(lines)
+	shown := lines
+	if total > maxLog {
+		shown = lines[:maxLog]
+	}
+	fmt.Fprintf(w, "  %s\n", output.Dim(fmt.Sprintf("%s..%s  %d개 새 커밋", before, after, total)))
+	for _, line := range shown {
+		fmt.Fprintf(w, "    %s\n", output.Dim(line))
+	}
+	if total > maxLog {
+		fmt.Fprintf(w, "    %s\n", output.Dim(fmt.Sprintf("...외 %d개 더", total-maxLog)))
+	}
+}
+
 func currentBranch(dir string) (string, error) {
 	out, err := uqexec.RunIn(dir, "git", "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
@@ -146,6 +203,11 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 		return err
 	}
 
+	remote := chooseRemote(dir)
+	if remote != "origin" {
+		fmt.Fprintf(w, "%s\n", output.Dim(fmt.Sprintf("(remote: %s)", remote)))
+	}
+
 	stashed := false
 	dirty, err := isDirty(dir)
 	if err != nil {
@@ -180,8 +242,8 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 	}
 
 	// 한 번 전체 fetch.
-	if _, err := uqexec.RunIn(dir, "git", "fetch", "origin"); err != nil {
-		return fmt.Errorf("git fetch 실패: %w", err)
+	if _, err := uqexec.RunIn(dir, "git", "fetch", remote); err != nil {
+		return fmt.Errorf("git fetch %s 실패: %w", remote, err)
 	}
 
 	var succeeded, failed []string
@@ -192,11 +254,14 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string) error
 			failed = append(failed, br)
 			continue
 		}
-		if _, err := uqexec.RunIn(dir, "git", "pull", "--ff-only", "origin", br); err != nil {
+		before, _ := branchSHA(dir, br)
+		if _, err := uqexec.RunIn(dir, "git", "pull", "--ff-only", remote, br); err != nil {
 			fmt.Fprintf(w, "  %s pull --ff-only 실패 (diverged?): %v\n", output.Red("✗"), err)
 			failed = append(failed, br)
 			continue
 		}
+		after, _ := branchSHA(dir, br)
+		printIncoming(w, dir, before, after)
 		succeeded = append(succeeded, br)
 	}
 
