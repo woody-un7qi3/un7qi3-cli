@@ -72,6 +72,29 @@ func RunInteractive(name string, args ...string) error {
 	return cmd.Run()
 }
 
+// RunIn behaves like Run but executes inside dir as the working directory.
+func RunIn(dir, name string, args ...string) ([]byte, error) {
+	echo(name, args)
+
+	cmd := osexec.Command(name, args...)
+	cmd.Dir = dir
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	err := cmd.Run()
+	if err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = strings.TrimSpace(stdout.String())
+		}
+		if msg == "" {
+			return stdout.Bytes(), fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), err)
+		}
+		return stdout.Bytes(), fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+	}
+	return stdout.Bytes(), nil
+}
+
 // LookPath reports whether the named binary is on $PATH.
 func LookPath(name string) bool {
 	_, err := osexec.LookPath(name)

@@ -1,0 +1,13 @@
+# 레포별 메타데이터.
+#
+# repos: 각 키는 GitHub 레포 이름. 값은 `uq repo pull` 이 순회할 브랜치 배열.
+#        첫 번째 = primary. 풀이 끝나면 원래 브랜치로 복귀하지만, 명령 안에서
+#        primary가 기준 역할을 한다.
+# defaults: 위 매핑에 없는 레포의 fallback 브랜치 목록.
+#
+# 추가/수정: 이 파일을 편집하고 `make install` 로 재빌드하면 즉시 반영.
+
+repos:
+  forceteller-api: [develop, master]
+
+defaults: [main]
