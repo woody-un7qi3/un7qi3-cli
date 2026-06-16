@@ -50,6 +50,8 @@ func NewCmd() *cobra.Command {
 		output.HelpExample("uq run forceteller-app:app3", "프로파일 명시"),
 		output.HelpExample("uq run forceteller-admin", "back + front 동시 실행"),
 		output.HelpExample("uq run forceteller-app --dry-run", "실제 실행 없이 풀어진 cmd/env 확인"),
+		output.HelpExample("uq run profiles", "등록된 프로파일 나열 (사람용)"),
+		output.HelpExample("uq run profiles --json", "에이전트/자동화용 머신 출력"),
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "run <repo>[:profile]",
@@ -113,6 +115,7 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&bgFlag, "bg", false, "백그라운드 실행 (로그 파일로 분리, 즉시 반환)")
 	cmd.Flags().BoolVar(&fgFlag, "fg", false, "포그라운드 실행 (현재 터미널에 로그 출력)")
 	cmd.MarkFlagsMutuallyExclusive("bg", "fg")
+	cmd.AddCommand(newProfilesCmd())
 	return cmd
 }
 
