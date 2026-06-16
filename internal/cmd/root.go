@@ -10,7 +10,7 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/deploy"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/doctor"
 	envcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/env"
-	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/install"
+	initcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/initcmd"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/logs"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/repo"
 	runcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/run"
@@ -82,6 +82,7 @@ var rootCmd = &cobra.Command{
 		output.Desc("사람도 사용할 수 있도록 친화적인 출력을 제공합니다."),
 		"",
 		output.Heading("자주 쓰는 명령"),
+		output.HelpExample("uq init", "최초 설정 (인증 + 워크스페이스)"),
 		output.HelpExample("uq doctor", "필수 도구 설치 점검"),
 		output.HelpExample("uq auth status", "gh / aws / gcloud 인증 상태"),
 		output.HelpExample("uq repo list", "un7qi3inc 레포 목록"),
@@ -129,8 +130,8 @@ func init() {
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
 	// 시작하기 — 새 머신/팀원 온보딩, uq 자체 유지보수
+	rootCmd.AddCommand(inGroup(initcmd.NewCmd(), groupSetup))
 	rootCmd.AddCommand(inGroup(doctor.NewCmd(), groupSetup))
-	rootCmd.AddCommand(inGroup(install.NewCmd(), groupSetup))
 	rootCmd.AddCommand(inGroup(upgrade.NewCmd(), groupSetup))
 	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupSetup))
 

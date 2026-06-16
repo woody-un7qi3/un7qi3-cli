@@ -98,6 +98,15 @@ func Heading(s string) string {
 	return Bold(s)
 }
 
+// Section renders a consistent step/section header for multi-step interactive
+// flows (e.g. `uq init`). Centralizing the format here means new steps extend
+// uniformly without each call site re-inventing a divider.
+//
+//	▌ 1. 인증
+func Section(s string) string {
+	return Cyan("▌") + " " + Bold(s)
+}
+
 // HelpExample renders a single help-example line. cmd is colorized as a
 // command, note is dimmed.
 //

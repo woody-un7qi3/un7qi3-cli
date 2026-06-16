@@ -11,6 +11,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 )
 
 // FindReposUsingTool scans workspaceDir's first-level subdirectories for
@@ -274,14 +276,14 @@ func VersionFromBinSymlink(binPath string) string {
 	return pkg.Version
 }
 
-// un7qi3WorkspaceDir returns the ~/un7qi3 workspace path, or "" when the
-// user's home directory can't be determined.
+// un7qi3WorkspaceDir returns the configured repos workspace path, or "" when
+// it can't be resolved.
 func un7qi3WorkspaceDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
+	dir, err := config.ReposDir()
+	if err != nil {
 		return ""
 	}
-	return filepath.Join(home, "un7qi3")
+	return dir
 }
 
 // un7qi3UsageSummary returns a Usage string ready for sub-line rendering.

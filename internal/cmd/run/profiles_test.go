@@ -89,7 +89,7 @@ func TestCollectProfiles_OrderingAndDefault(t *testing.T) {
 }
 
 func TestCollectProfiles_AbsoluteCwdAndProcs(t *testing.T) {
-	got := collectProfiles(sampleCfg(), "/home/u", "forceteller-admin")
+	got := collectProfiles(sampleCfg(), "/home/u/un7qi3", "forceteller-admin")
 	if len(got) != 1 {
 		t.Fatalf("filter should return 1 profile, got %d", len(got))
 	}
@@ -134,7 +134,7 @@ func TestProfilesJSONStableShape(t *testing.T) {
 			},
 		},
 	}
-	profiles := collectProfiles(cfg, "/h", "")
+	profiles := collectProfiles(cfg, "/h/un7qi3", "")
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	enc.SetIndent("", "  ")

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
 )
@@ -72,15 +72,15 @@ func newProfilesCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			home, err := os.UserHomeDir()
+			reposDir, err := config.ReposDir()
 			if err != nil {
-				return fmt.Errorf("홈 디렉토리 확인 실패: %w", err)
+				return err
 			}
 			filter := ""
 			if len(args) == 1 {
 				filter = args[0]
 			}
-			profiles := collectProfiles(cfg, home, filter)
+			profiles := collectProfiles(cfg, reposDir, filter)
 			if filter != "" && len(profiles) == 0 {
 				return fmt.Errorf("'%s' 에 등록된 run 프로파일이 없습니다", filter)
 			}
@@ -102,9 +102,9 @@ func newProfilesCmd() *cobra.Command {
 // Ordering: repos are sorted alphabetically. Within a repo, the default
 // profile appears first, then the rest alphabetically.
 //
-// home is the user's home directory — joined with "un7qi3/<repo>" to produce
-// the absolute cwd. filterRepo, when non-empty, limits output to that repo.
-func collectProfiles(cfg *repocfg.Config, home, filterRepo string) []profileJSON {
+// reposDir is the workspace root — joined with "<repo>" to produce the
+// absolute cwd. filterRepo, when non-empty, limits output to that repo.
+func collectProfiles(cfg *repocfg.Config, reposDir, filterRepo string) []profileJSON {
 	out := []profileJSON{}
 	repos := make([]string, 0, len(cfg.Runs))
 	for k := range cfg.Runs {
@@ -131,7 +131,7 @@ func collectProfiles(cfg *repocfg.Config, home, filterRepo string) []profileJSON
 			return names[i] < names[j]
 		})
 
-		repoCwd := filepath.Join(home, "un7qi3", repo)
+		repoCwd := filepath.Join(reposDir, repo)
 		for _, name := range names {
 			p := runs.Profiles[name]
 			isDefault := name == runs.Default ||

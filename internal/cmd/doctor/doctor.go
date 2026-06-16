@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
 
@@ -672,9 +673,9 @@ func gitCheck() (bool, string, string, string) {
 	}
 
 	lines := []string{head}
-	home, _ := os.UserHomeDir()
-	if home != "" {
-		overrides, usingGlobal := scanUn7qi3LocalEmails(filepath.Join(home, "un7qi3"), globalEmail)
+	reposDir, _ := config.ReposDir()
+	if reposDir != "" {
+		overrides, usingGlobal := scanUn7qi3LocalEmails(reposDir, globalEmail)
 		// Group by email so 같은 override 가 모이고 한 줄에 요약된다.
 		byEmail := map[string][]string{}
 		for repo, email := range overrides {

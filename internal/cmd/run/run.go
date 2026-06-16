@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
@@ -70,11 +71,11 @@ func NewCmd() *cobra.Command {
 				return err
 			}
 
-			home, err := os.UserHomeDir()
+			reposDir, err := config.ReposDir()
 			if err != nil {
-				return fmt.Errorf("홈 디렉토리 확인 실패: %w", err)
+				return err
 			}
-			dir := filepath.Join(home, "un7qi3", repoName)
+			dir := filepath.Join(reposDir, repoName)
 			if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 				return fmt.Errorf("레포가 없습니다: %s\n  먼저 `uq repo clone %s` 실행", dir, repoName)
 			}

@@ -10,6 +10,9 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	initcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/initcmd"
+	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
@@ -31,9 +34,14 @@ func newPullCmd() *cobra.Command {
 		currentOnly    bool
 		reset          bool
 		yes            bool
+		team           string
+		all            bool
 	)
 	long := strings.Join([]string{
 		output.Desc("로컬 클론된 레포의 설정된 브랜치를 최신으로 동기화합니다."),
+		"",
+		output.Desc("레포명을 주면 그 레포들을, 생략하면 로컬 레포를 TUI로 다중 선택합니다."),
+		output.Yellow("--team") + output.Desc(" 으로 팀(GitHub topic) 단위로 대상을 좁힐 수 있습니다."),
 		"",
 		output.Desc("브랜치 목록은 ") + output.Cyan("internal/repocfg/repos.yml") + output.Desc(" 에서 관리합니다."),
 		output.Desc("매핑이 없는 레포는 defaults(") + output.Yellow("[main]") + output.Desc(")가 적용됩니다."),
@@ -46,53 +54,191 @@ func newPullCmd() *cobra.Command {
 		"",
 		output.Heading("예시"),
 		output.HelpExample("uq repo pull forceteller-api", "설정된 브랜치 전부 (develop, master)"),
+		output.HelpExample("uq repo pull astro-api forceteller-api", "여러 레포 한 번에"),
+		output.HelpExample("uq repo pull", "로컬 레포에서 TUI 다중 선택"),
+		output.HelpExample("uq repo pull --team backend", "팀 레포로 좁혀 TUI 선택"),
+		output.HelpExample("uq repo pull --all", "로컬 레포 전부 (비대화형)"),
 		output.HelpExample("uq repo pull forceteller-api --current", "현재 브랜치만"),
-		output.HelpExample("uq repo pull forceteller-api --branches main", "설정 무시"),
-		output.HelpExample("uq repo pull forceteller-api --reset", "원격 상태로 강제 동기화 (확인)"),
-		output.HelpExample("uq repo pull forceteller-api --reset --yes", "확인 없이 즉시"),
+		output.HelpExample("uq repo pull forceteller-api --reset --yes", "원격 상태로 강제 동기화"),
 	}, "\n")
 	cmd := &cobra.Command{
-		Use:   "pull <name>",
-		Short: "레포의 설정된 브랜치를 최신으로 풀",
+		Use:   "pull [name ...]",
+		Short: "레포의 설정된 브랜치를 최신으로 풀 (인자 없으면 TUI 다중 선택)",
 		Long:  long,
-		Args:  cobra.ExactArgs(1),
+		Args:  cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			name := args[0]
-
-			home, err := os.UserHomeDir()
+			if err := initcmd.EnsureReposDir(cmd.OutOrStdout()); err != nil {
+				return err
+			}
+			reposDir, err := config.ReposDir()
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "홈 디렉토리 확인 실패: %v\n", err)
-				os.Exit(1)
-			}
-			dir := filepath.Join(home, "un7qi3", name)
-			if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
-				fmt.Fprintf(os.Stderr, "레포가 없습니다: %s\n  먼저 `uq repo clone %s` 또는 `uq install <team>` 실행\n", dir, name)
-				os.Exit(1)
+				return err
 			}
 
-			branches, err := resolveBranches(name, branchOverride, currentOnly, dir)
-			if err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
-			}
-			if len(branches) == 0 {
-				fmt.Fprintln(os.Stderr, "풀할 브랜치가 없습니다")
-				os.Exit(1)
+			if len(args) > 0 {
+				if team != "" {
+					return fmt.Errorf("--team 과 레포명 인자는 함께 쓸 수 없습니다")
+				}
+				if all {
+					return fmt.Errorf("--all 은 레포명 인자와 함께 쓸 수 없습니다")
+				}
 			}
 
-			if err := pullBranches(cmd, dir, name, branches, reset, yes); err != nil {
-				fmt.Fprintln(os.Stderr, err)
-				os.Exit(1)
+			names := args
+			if len(names) == 0 {
+				names, err = resolvePullTargets(cmd, reposDir, team, all)
+				if err != nil {
+					return err
+				}
+				if len(names) == 0 {
+					return nil
+				}
 			}
-			return nil
+
+			return runPull(cmd, reposDir, names, branchOverride, currentOnly, reset, yes)
 		},
 	}
 	cmd.Flags().StringSliceVar(&branchOverride, "branches", nil, "설정 무시하고 지정한 브랜치만")
 	cmd.Flags().BoolVar(&currentOnly, "current", false, "현재 체크아웃된 브랜치만")
 	cmd.Flags().BoolVar(&reset, "reset", false, "각 브랜치를 원격 상태로 강제 동기화 (파괴적). 로컬 커밋/변경/untracked 모두 삭제. 확인 prompt 있음.")
 	cmd.Flags().BoolVar(&yes, "yes", false, "확인 prompt 스킵 (--reset 비대화형용)")
+	cmd.Flags().StringVar(&team, "team", "", "팀(GitHub topic)으로 대상 레포를 좁힘")
+	cmd.Flags().BoolVar(&all, "all", false, "로컬 클론된 레포 전부 (비대화형)")
 	cmd.MarkFlagsMutuallyExclusive("branches", "current")
 	return cmd
+}
+
+// localRepos는 reposDir 하위에서 .git 을 가진 디렉토리 이름을 정렬해 반환한다.
+func localRepos(reposDir string) ([]string, error) {
+	entries, err := os.ReadDir(reposDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("%s 읽기 실패: %w", reposDir, err)
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(reposDir, e.Name(), ".git")); err != nil {
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+// resolvePullTargets는 인자 없이 호출됐을 때 풀 대상 레포명을 정한다.
+// 후보는 로컬 클론된 레포이며, team 이 있으면 해당 topic 으로 교집합한다.
+// all 이면 후보 전부, 아니면 TUI 다중 선택.
+func resolvePullTargets(cmd *cobra.Command, reposDir, team string, all bool) ([]string, error) {
+	local, err := localRepos(reposDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(local) == 0 {
+		fmt.Fprintf(cmd.OutOrStderr(), "%s 에 클론된 레포가 없습니다.\n  먼저 `uq repo clone` 실행\n",
+			reposDir)
+		return nil, nil
+	}
+
+	candidates := local
+	if team != "" {
+		if s := authpkg.GhStatus(); !s.OK {
+			return nil, &authpkg.RequiredError{
+				Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
+			}
+		}
+		topicRepos, err := fetchOrgRepos(200, team)
+		if err != nil {
+			return nil, err
+		}
+		inTopic := make(map[string]bool, len(topicRepos))
+		for _, r := range topicRepos {
+			inTopic[r.Name] = true
+		}
+		candidates = nil
+		for _, name := range local {
+			if inTopic[name] {
+				candidates = append(candidates, name)
+			}
+		}
+		if len(candidates) == 0 {
+			fmt.Fprintf(cmd.OutOrStderr(), "%q 토픽이면서 로컬에 클론된 레포가 없습니다.\n", team)
+			return nil, nil
+		}
+	}
+
+	if all {
+		return candidates, nil
+	}
+	return pickPullTUI(reposDir, candidates)
+}
+
+func pickPullTUI(reposDir string, names []string) ([]string, error) {
+	options := make([]huh.Option[string], 0, len(names))
+	for _, n := range names {
+		options = append(options, huh.NewOption(n, n))
+	}
+	var chosen []string
+	form := huh.NewForm(
+		huh.NewGroup(
+			huh.NewMultiSelect[string]().
+				Title("풀할 레포를 선택하세요 (space=토글, enter=확정)").
+				Description(fmt.Sprintf("로컬 %s 에 클론된 레포 %d개입니다.", reposDir, len(names))).
+				Options(options...).
+				Value(&chosen),
+		),
+	)
+	if err := form.Run(); err != nil {
+		return nil, err
+	}
+	return chosen, nil
+}
+
+// runPull은 선택된 레포들을 순서대로 풀하고 전체 요약을 출력한다.
+// 로컬에 없는 레포는 건너뛰고, 하나라도 실패하면 에러를 반환한다.
+func runPull(cmd *cobra.Command, reposDir string, names, override []string, currentOnly, reset, yes bool) error {
+	w := cmd.OutOrStderr()
+	var ok, failed, missing []string
+	for i, name := range names {
+		if i > 0 {
+			fmt.Fprintln(w)
+		}
+		dir := filepath.Join(reposDir, name)
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+			fmt.Fprintf(w, "%s %s  %s\n", output.Yellow("⊘"), name, output.Dim("로컬에 없음 — 건너뜀"))
+			missing = append(missing, name)
+			continue
+		}
+		branches, err := resolveBranches(name, override, currentOnly, dir)
+		if err != nil {
+			fmt.Fprintf(w, "%s %s  %s\n", output.Red("✗"), name, output.Dim(err.Error()))
+			failed = append(failed, name)
+			continue
+		}
+		if len(branches) == 0 {
+			fmt.Fprintf(w, "%s %s  %s\n", output.Yellow("⚠"), name, output.Dim("풀할 브랜치가 없습니다"))
+			failed = append(failed, name)
+			continue
+		}
+		if err := pullBranches(cmd, dir, name, branches, reset, yes); err != nil {
+			failed = append(failed, name)
+			continue
+		}
+		ok = append(ok, name)
+	}
+
+	if len(names) > 1 || len(missing) > 0 || len(failed) > 0 {
+		fmt.Fprintf(w, "\n%s 성공 %d  실패 %d  없음 %d\n",
+			output.Bold("전체 요약:"), len(ok), len(failed), len(missing))
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("일부 레포 풀 실패: %s", strings.Join(failed, ", "))
+	}
+	return nil
 }
 
 func resolveBranches(name string, override []string, currentOnly bool, dir string) ([]string, error) {

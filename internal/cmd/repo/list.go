@@ -25,6 +25,28 @@ type ghRepo struct {
 	IsArchived  bool   `json:"isArchived"`
 }
 
+// fetchOrgRepos는 gh repo list 로 조직 레포 전체를 조회한다.
+// topic이 비어 있지 않으면 --topic 으로 후보를 좁힌다.
+// archived 필터링은 호출자가 담당한다.
+func fetchOrgRepos(limit int, topic string) ([]ghRepo, error) {
+	ghArgs := []string{"repo", "list", ghOrg,
+		"--json", "name,description,visibility,updatedAt,isArchived",
+		"--limit", strconv.Itoa(limit),
+	}
+	if topic != "" {
+		ghArgs = append(ghArgs, "--topic", topic)
+	}
+	out, err := uqexec.Run("gh", ghArgs...)
+	if err != nil {
+		return nil, err
+	}
+	var repos []ghRepo
+	if err := json.Unmarshal(out, &repos); err != nil {
+		return nil, fmt.Errorf("gh 응답 파싱 실패: %w", err)
+	}
+	return repos, nil
+}
+
 func newListCmd() *cobra.Command {
 	long := strings.Join([]string{
 		output.Desc("un7qi3inc 조직의 레포 목록을 표시합니다."),
@@ -59,17 +81,9 @@ func newListCmd() *cobra.Command {
 				}
 			}
 
-			out, err := uqexec.Run("gh", "repo", "list", ghOrg,
-				"--json", "name,description,visibility,updatedAt,isArchived",
-				"--limit", strconv.Itoa(limit),
-			)
+			repos, err := fetchOrgRepos(limit, "")
 			if err != nil {
 				return err
-			}
-
-			var repos []ghRepo
-			if jerr := json.Unmarshal(out, &repos); jerr != nil {
-				return fmt.Errorf("gh 응답 파싱 실패: %w", jerr)
 			}
 
 			// 기본 동작: archived 제외. --archived 단독 지정 시 archived만.
