@@ -27,6 +27,15 @@ var (
 	flagConfig  string
 )
 
+// Top-level command groups. The IDs are arbitrary stable strings; the Titles
+// are what users see in `uq --help`.
+const (
+	groupSetup = "setup"
+	groupDev   = "dev"
+	groupOps   = "ops"
+	groupTools = "tools"
+)
+
 const usageTemplate = `{{heading "사용법:"}}{{if .Runnable}}
   {{.UseLine}}{{end}}{{if .HasAvailableSubCommands}}
   {{.CommandPath}} [명령]{{end}}{{if gt (len .Aliases) 0}}
@@ -40,11 +49,11 @@ const usageTemplate = `{{heading "사용법:"}}{{if .Runnable}}
 {{heading "사용 가능한 명령:"}}
 {{cmdList $cmds}}{{else}}{{range $group := .Groups}}
 
-{{heading .Title}}{{range $cmds}}{{if (and (eq .GroupID $group.ID) (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{if not .AllChildCommandsHaveGroup}}
+{{heading $group.Title}}
+{{cmdGroup $cmds $group.ID}}{{end}}{{if not .AllChildCommandsHaveGroup}}
 
-{{heading "추가 명령:"}}{{range $cmds}}{{if (and (eq .GroupID "") (or .IsAvailableCommand (eq .Name "help")))}}
-  {{rpad .Name .NamePadding }} {{.Short}}{{end}}{{end}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
+{{heading "추가 명령:"}}
+{{cmdGroup $cmds ""}}{{end}}{{end}}{{end}}{{if .HasAvailableLocalFlags}}
 
 {{heading "플래그:"}}
 {{.LocalFlags.FlagUsages | trimTrailingWhitespaces | colorFlags}}{{end}}{{if .HasAvailableInheritedFlags}}
@@ -90,6 +99,14 @@ func init() {
 	cobra.AddTemplateFunc("cyan", output.Cyan)
 	cobra.AddTemplateFunc("colorFlags", output.ColorizeFlagUsages)
 	cobra.AddTemplateFunc("cmdList", renderCommandList)
+	cobra.AddTemplateFunc("cmdGroup", renderCommandGroup)
+
+	rootCmd.AddGroup(
+		&cobra.Group{ID: groupSetup, Title: "시작하기"},
+		&cobra.Group{ID: groupDev, Title: "개발 워크플로"},
+		&cobra.Group{ID: groupOps, Title: "배포 & 운영"},
+		&cobra.Group{ID: groupTools, Title: "도구"},
+	)
 
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetHelpTemplate(helpTemplate)
@@ -98,21 +115,37 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "상세 로그 출력")
 	rootCmd.PersistentFlags().StringVar(&flagConfig, "config", "", "설정 파일 경로")
 
-	rootCmd.SetHelpCommand(newHelpCmd())
-	rootCmd.AddCommand(newCompletionCmd())
+	helpCmd := newHelpCmd()
+	helpCmd.GroupID = groupTools
+	rootCmd.SetHelpCommand(helpCmd)
+
+	// completion 은 cobra가 공짜로 주는 셸 자동완성 스크립트 생성기.
+	// 신규 사용자에게는 첫인상에 노이즈가 되므로 --help 에서 숨기고,
+	// 아는 사람만 `uq completion zsh > ...` 로 직접 호출하도록 둔다.
+	completionCmd := newCompletionCmd()
+	completionCmd.GroupID = groupTools
+	completionCmd.Hidden = true
+	rootCmd.AddCommand(completionCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
-	rootCmd.AddCommand(versioncmd.NewCmd())
-	rootCmd.AddCommand(doctor.NewCmd())
-	rootCmd.AddCommand(install.NewCmd())
-	rootCmd.AddCommand(repo.NewCmd())
-	rootCmd.AddCommand(runcmd.NewCmd())
-	rootCmd.AddCommand(auth.NewCmd())
-	rootCmd.AddCommand(envcmd.NewCmd())
-	rootCmd.AddCommand(deploy.NewCmd())
-	rootCmd.AddCommand(logs.NewCmd())
-	rootCmd.AddCommand(upgrade.NewCmd())
-	rootCmd.AddCommand(skills.NewCmd())
+	// 시작하기 — 새 머신/팀원 온보딩, uq 자체 유지보수
+	rootCmd.AddCommand(inGroup(doctor.NewCmd(), groupSetup))
+	rootCmd.AddCommand(inGroup(install.NewCmd(), groupSetup))
+	rootCmd.AddCommand(inGroup(upgrade.NewCmd(), groupSetup))
+	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupSetup))
+
+	// 개발 워크플로 — 인증, 레포, 로컬 실행, 시크릿
+	rootCmd.AddCommand(inGroup(auth.NewCmd(), groupDev))
+	rootCmd.AddCommand(inGroup(repo.NewCmd(), groupDev))
+	rootCmd.AddCommand(inGroup(runcmd.NewCmd(), groupDev))
+	rootCmd.AddCommand(inGroup(envcmd.NewCmd(), groupDev))
+
+	// 배포 & 운영
+	rootCmd.AddCommand(inGroup(deploy.NewCmd(), groupOps))
+	rootCmd.AddCommand(inGroup(logs.NewCmd(), groupOps))
+
+	// 도구
+	rootCmd.AddCommand(inGroup(skills.NewCmd(), groupTools))
 
 	// -h/--help 플래그 설명을 한글로
 	rootCmd.PersistentFlags().BoolP("help", "h", false, "도움말 표시")
@@ -175,6 +208,26 @@ func newCompletionCmd() *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// inGroup tags c with groupID and returns it, for use inline with AddCommand.
+func inGroup(c *cobra.Command, groupID string) *cobra.Command {
+	c.GroupID = groupID
+	return c
+}
+
+// renderCommandGroup is the templated `cmdGroup $cmds $groupID` — same
+// formatting as renderCommandList but only over commands matching groupID.
+// Pass "" for ungrouped commands (the "추가 명령" fallback).
+func renderCommandGroup(cmds []*cobra.Command, groupID string) string {
+	filtered := make([]*cobra.Command, 0, len(cmds))
+	for _, c := range cmds {
+		if c.GroupID != groupID {
+			continue
+		}
+		filtered = append(filtered, c)
+	}
+	return renderCommandList(filtered)
 }
 
 // renderCommandList formats the subcommand listing block exactly like
