@@ -75,6 +75,8 @@ uq logs forceteller-api
       → [api-beta-kr-j21, api-prod-kr-j21]
  4. 환경 결정: 남은 위치인자(예: beta)로 부분문자열 필터 → 1개면 자동, 여러 개면 huh TUI
  5. 인스턴스 발견: describe-environment-resources --environment-name <env> --region <region>
+      → 실행 순간의 라이브 인스턴스 N개(오토스케일 반영). 시작 시 1회 스냅샷 — 세션 도중
+        스케일 변동분은 잡지 않으며, 새 인스턴스를 보려면 재실행한다.
  6. 스트리밍: 각 인스턴스에 eb ssh <env> --region <region> -n <i> -c "sudo tail -F <path>"
       merged: [<env>#i] 색상 prefix 한 화면 / --split: 인스턴스별 패널
       --grep: 클라이언트단 정규식 필터
@@ -153,8 +155,26 @@ EB 드라이버(`internal/logs/eb.go`):
 
 ## 출력 — merged / split
 
-- **merged**(기본): 각 인스턴스의 tail 프로세스를 spawn 하고 stdout 라인마다 `[<label>]` 색상 prefix 를 붙여 한 스트림으로 합친다(`internal/logs/mux.go`). `--grep` 정규식은 여기서 필터. Ctrl+C 로 전체 종료.
+- **merged**(기본): 각 인스턴스의 tail 프로세스를 spawn 해 한 스트림으로 합친다(`internal/logs/mux.go`). 어느 인스턴스 로그인지 식별 가능해야 하므로:
+  - **시작 시 범례** 출력 — `#k` → 실제 인스턴스 매핑:
+    ```
+    #1 → i-0abc123  (13.125.233.58)
+    #2 → i-0def456  (13.125.233.59)
+    ```
+  - **라인별 prefix** `[#k]` 를 **인스턴스마다 다른 색**으로 붙임(run 의 `[back]`/`[front]` 방식). 색+번호로 구분, 범례로 실제 EC2 id/IP 추적.
+  - `--grep` 정규식은 prefix 를 제외한 본문에 적용. Ctrl+C 로 전체 종료.
 - **split**: 인스턴스별 별도 패널. `internal/run/split.go` 의 패널 여는 로직을 `internal/run` 공유 패키지로 추출해 run·logs 가 함께 쓴다. 분할 불가 환경은 run 과 동일하게 merged 로 graceful degrade + 안내.
+
+### 연결 실패 처리
+
+eb ssh 는 SG 소스 제한이 있으면 포트를 열지 않고 접속을 시도하며, 현재 IP 가 SG 에 없으면 SSH 타임아웃난다. uq 는:
+
+1. **eb/ssh 원본 경고·에러를 그대로 전달** + 한 줄 힌트:
+   `✗ SSH 접속 실패 — 현재 IP 가 보안그룹에 허용돼 있지 않을 수 있습니다. SG 에 IP 추가/VPN 확인. (uq 는 SG 를 자동 변경하지 않음)`
+2. **인스턴스별 격리** — merged 에서 한 인스턴스가 실패해도 나머지 스트림은 계속. `[<env>#k] 접속 실패` 표시 후 그 프로세스만 종료, 전체는 유지.
+3. **빠른 실패** — `eb ssh ... -o "ConnectTimeout=10"` 으로 ssh 연결 타임아웃을 단축(eb ssh 의 ssh 옵션 전달 가능 여부 구현 시 확인; 불가하면 문서화).
+
+`--force`(SG 임시 개방)는 **노출하지 않는다** — 인프라/보안 변경이므로 uq 책임 밖.
 
 ### split 로직 추출(소폭 리팩터)
 
@@ -240,7 +260,9 @@ env -u TMUX -u CMUX_PANEL_ID -u CMUX_SOCKET_PATH TERM_PROGRAM=Apple_Terminal \
 - **`--since` 시간 기반 필터** — 파일 tail 의 시간 필터는 로그 포맷마다 달라 신뢰성이 낮다. MVP 는 실시간 follow + 최근 100줄 백로그만. (CloudWatch 도입 시 자연 해결.)
 - **CloudWatch Logs / SSM transport** — 이번 MVP 는 `eb ssh` 만. 서버사이드 필터·인스턴스 id 타겟팅·인프라 무중단은 후속 Phase 에서 `Source` 드라이버 추가로 확장(CLI 불변).
 - **EB 외 소스(ecs/k8s/local)** — 인터페이스만 열어두고 드라이버 미구현.
+- **세션 중 인스턴스 재발견** — 인스턴스는 시작 시 1회 스냅샷. follow 중 오토스케일 증감분은 반영 안 함(재실행 필요). 주기적 재발견은 후속.
 - **국가별 동시 스트리밍** — 한 번에 한 국가(=한 region/app). 여러 국가 동시 보기는 범위 밖.
 - **로그 경로 per-환경/멀티 파일** — 레포당 단일 `path`. 여러 파일 동시 tail 은 범위 밖.
+- **SG 자동 개방(`--force`/`--open-sg`)** — uq 는 보안그룹을 변경하지 않는다. IP 미허용 시 안내만.
 - **분할 패널 생명주기 관리** — 패널 일괄 종료/정리는 run 과 동일하게 범위 밖.
 - **application/환경의 region-cross 발견** — region 은 국가 설정에서 옴. 한 국가가 여러 region 에 걸치는 경우는 범위 밖.
