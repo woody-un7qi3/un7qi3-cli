@@ -148,9 +148,9 @@ func (m model) View() string {
 	if !m.ready {
 		return "로딩 중…"
 	}
-	status := "실시간"
+	status := "👀 실시간"
 	if m.paused {
-		status = "일시정지"
+		status = "⏸ 일시정지"
 	}
 	var toggles strings.Builder
 	for _, in := range m.insts {
