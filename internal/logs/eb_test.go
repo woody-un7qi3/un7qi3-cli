@@ -9,12 +9,30 @@ import (
 func TestTailArgsWithKeyAddsCustom(t *testing.T) {
 	s := NewEBSource("/var/log/web.stdout.log")
 	s.keyPath = "/home/u/.ssh/k.pem"
-	got := s.TailArgs(Target{Region: "ap-northeast-2"}, "api-prod-kr-j21", Instance{Num: 3}, true, 100)
+	got := s.TailArgs(Target{Region: "ap-northeast-2"}, "api-prod-kr-j21", Instance{Num: 3}, true, 100, "")
 	want := []string{"ssh", "api-prod-kr-j21", "--region", "ap-northeast-2", "-n", "3",
 		"--custom", "ssh -i /home/u/.ssh/k.pem -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10",
 		"-c", "sudo tail -n 100 -F /var/log/web.stdout.log"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("with-key argv\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestTailArgsFollowGrep(t *testing.T) {
+	s := NewEBSource("/var/log/web.stdout.log")
+	got := s.TailArgs(Target{Region: "ap-northeast-2"}, "e1", Instance{Num: 1}, true, 100, "ERROR")
+	wantCmd := "sudo tail -n 100 -F /var/log/web.stdout.log | grep --line-buffered -E 'ERROR'"
+	if got[len(got)-1] != wantCmd {
+		t.Errorf("follow+grep -c\n got %q\nwant %q", got[len(got)-1], wantCmd)
+	}
+}
+
+func TestTailArgsNoFollowGrep(t *testing.T) {
+	s := NewEBSource("/var/log/web.stdout.log")
+	got := s.TailArgs(Target{Region: "ap-northeast-2"}, "e1", Instance{Num: 1}, false, 50, "ERROR")
+	wantCmd := "sudo grep -E 'ERROR' /var/log/web.stdout.log | tail -n 50"
+	if got[len(got)-1] != wantCmd {
+		t.Errorf("no-follow+grep -c\n got %q\nwant %q", got[len(got)-1], wantCmd)
 	}
 }
 
@@ -53,7 +71,7 @@ func newFakeEB(out map[string][]byte) *EBSource {
 func TestTailArgsFollow(t *testing.T) {
 	s := NewEBSource("/var/log/web.stdout.log")
 	tgt := Target{Country: "kr", App: "kr-forceteller-api", Region: "ap-northeast-2"}
-	got := s.TailArgs(tgt, "api-beta-kr-j21", Instance{Num: 2}, true, 100)
+	got := s.TailArgs(tgt, "api-beta-kr-j21", Instance{Num: 2}, true, 100, "")
 	want := []string{"ssh", "api-beta-kr-j21", "--region", "ap-northeast-2",
 		"-n", "2", "-c", "sudo tail -n 100 -F /var/log/web.stdout.log"}
 	if !reflect.DeepEqual(got, want) {
@@ -64,7 +82,7 @@ func TestTailArgsFollow(t *testing.T) {
 func TestTailArgsNoFollow(t *testing.T) {
 	s := NewEBSource("/var/log/web.stdout.log")
 	tgt := Target{Region: "ap-southeast-1"}
-	got := s.TailArgs(tgt, "api-prod-en-j21", Instance{Num: 1}, false, 50)
+	got := s.TailArgs(tgt, "api-prod-en-j21", Instance{Num: 1}, false, 50, "")
 	want := []string{"ssh", "api-prod-en-j21", "--region", "ap-southeast-1",
 		"-n", "1", "-c", "sudo tail -n 50 /var/log/web.stdout.log"}
 	if !reflect.DeepEqual(got, want) {

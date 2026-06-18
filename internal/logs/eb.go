@@ -60,17 +60,33 @@ func (s *EBSource) Instances(t Target, env string) ([]Instance, error) {
 	return insts, nil
 }
 
-func (s *EBSource) TailArgs(t Target, env string, inst Instance, follow bool, lines int) []string {
-	tail := fmt.Sprintf("sudo tail -n %d", lines)
-	if follow {
-		tail += " -F"
-	}
-	tail += " " + s.path
+func (s *EBSource) TailArgs(t Target, env string, inst Instance, follow bool, lines int, grep string) []string {
 	args := []string{"ssh", env, "--region", t.Region, "-n", strconv.Itoa(inst.Num)}
 	if s.keyPath != "" {
 		args = append(args, "--custom", sshCustom(s.keyPath))
 	}
-	return append(args, "-c", tail)
+	return append(args, "-c", s.tailCommand(follow, lines, grep))
+}
+
+// tailCommand 는 인스턴스에서 실행할 셸 1줄을 만든다. grep 이 있으면 서버사이드로
+// 필터한다: follow 는 tail -F 를 grep 으로 파이프, no-follow 는 파일 전체를 grep 한 뒤
+// 마지막 N줄. grep 이 없으면 단순 tail.
+func (s *EBSource) tailCommand(follow bool, lines int, grep string) string {
+	if grep != "" {
+		if follow {
+			return fmt.Sprintf("sudo tail -n %d -F %s | grep --line-buffered -E %s", lines, s.path, sq(grep))
+		}
+		return fmt.Sprintf("sudo grep -E %s %s | tail -n %d", sq(grep), s.path, lines)
+	}
+	if follow {
+		return fmt.Sprintf("sudo tail -n %d -F %s", lines, s.path)
+	}
+	return fmt.Sprintf("sudo tail -n %d %s", lines, s.path)
+}
+
+// sq 는 인자를 작은따옴표로 감싼다(원격 셸에 안전하게 전달).
+func sq(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // sshCustom 은 eb ssh --custom 에 넘길 ssh 명령. StrictHostKeyChecking=accept-new 로

@@ -82,7 +82,7 @@ func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env st
 		wg.Add(1)
 		go func(in Instance) {
 			defer wg.Done()
-			args := src.TailArgs(t, env, in, follow, lines)
+			args := src.TailArgs(t, env, in, follow, lines, grep)
 			cmd := exec.CommandContext(ctx, "eb", args...)
 			stdout, err := cmd.StdoutPipe()
 			cmd.Stderr = cmd.Stdout // eb 경고도 같이

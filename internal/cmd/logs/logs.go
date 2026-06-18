@@ -146,15 +146,12 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 		lines = 1
 	}
 	if dryRun {
-		return printLogsPlan(w, tgt, env, insts, src, !noFollow, lines)
+		return printLogsPlan(w, tgt, env, insts, src, !noFollow, lines, grep)
 	}
 	if split {
 		mux := run.DetectMultiplexer()
 		if eblogs.SplitSupported(mux) {
-			if grep != "" {
-				fmt.Fprintln(w, output.Yellow("⚠"), "--split 에서는 --grep 가 적용되지 않습니다")
-			}
-			return runLogsSplit(w, src, tgt, env, insts, mux, !noFollow, lines)
+			return runLogsSplit(w, src, tgt, env, insts, mux, !noFollow, lines, grep)
 		}
 		fmt.Fprintln(w, output.Yellow("⚠"), "현재 터미널은 분할 미지원 — merged 로 진행")
 	}
@@ -241,7 +238,7 @@ func filterInstance(insts []eblogs.Instance, num int) []eblogs.Instance {
 
 // printLogsPlan 은 dry-run 시 해석된 대상과 eb 명령을 출력한다.
 func printLogsPlan(w io.Writer, tgt eblogs.Target, env string, insts []eblogs.Instance,
-	src eblogs.Source, follow bool, lines int) error {
+	src eblogs.Source, follow bool, lines int, grep string) error {
 	fmt.Fprintf(w, "%s logs dry-run\n", output.Bold("uq"))
 	fmt.Fprintf(w, "  app:    %s\n", tgt.App)
 	fmt.Fprintf(w, "  region: %s\n", tgt.Region)
@@ -253,7 +250,7 @@ func printLogsPlan(w io.Writer, tgt eblogs.Target, env string, insts []eblogs.In
 	fmt.Fprintln(w)
 	fmt.Fprintf(w, "  %s\n", output.Bold("명령:"))
 	for _, in := range insts {
-		args := src.TailArgs(tgt, env, in, follow, lines)
+		args := src.TailArgs(tgt, env, in, follow, lines, grep)
 		fmt.Fprintf(w, "    eb %s\n", strings.Join(args, " "))
 	}
 	return nil
@@ -261,11 +258,11 @@ func printLogsPlan(w io.Writer, tgt eblogs.Target, env string, insts []eblogs.In
 
 // runLogsSplit 은 멀티플렉서 패널로 인스턴스별 로그를 분리 실행한다.
 func runLogsSplit(w io.Writer, src eblogs.Source, tgt eblogs.Target, env string,
-	insts []eblogs.Instance, mux run.Multiplexer, follow bool, lines int) error {
+	insts []eblogs.Instance, mux run.Multiplexer, follow bool, lines int, grep string) error {
 	argvs := make([][]string, 0, len(insts))
 	labels := make([]string, 0, len(insts))
 	for _, in := range insts {
-		argvs = append(argvs, src.TailArgs(tgt, env, in, follow, lines))
+		argvs = append(argvs, src.TailArgs(tgt, env, in, follow, lines, grep))
 		labels = append(labels, in.Label)
 	}
 	panels := eblogs.BuildPanels(argvs, labels)

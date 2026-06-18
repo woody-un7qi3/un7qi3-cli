@@ -22,5 +22,6 @@ type Source interface {
 	// Instances 는 환경의 인스턴스 목록을 반환한다(시작 시 1회 스냅샷).
 	Instances(t Target, env string) ([]Instance, error)
 	// TailArgs 는 한 인스턴스를 스트리밍하는 eb argv(eb 제외) 를 반환한다.
-	TailArgs(t Target, env string, inst Instance, follow bool, lines int) []string
+	// grep 이 비어있지 않으면 서버사이드로 필터한다(no-follow 는 파일 전체 검색).
+	TailArgs(t Target, env string, inst Instance, follow bool, lines int, grep string) []string
 }
