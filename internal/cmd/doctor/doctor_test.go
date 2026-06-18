@@ -123,6 +123,30 @@ func TestBuildChecks_Inventory(t *testing.T) {
 	}
 }
 
+// eb 는 logs 를 쓰지 않는 역할(프런트 등)에게 강제되면 안 되므로 doctor 에서
+// Optional 로 취급한다(미설치여도 하드 실패 아님). 설치 안내는 다른 인프라 도구와
+// 동일하게 brew 로 통일한다.
+func TestBuildChecks_EBOptionalWithBrewFix(t *testing.T) {
+	eb := findCheck(t, "eb")
+	if !eb.Optional {
+		t.Errorf("eb 는 Optional 이어야 한다(logs 미사용 역할에 강제 금지)")
+	}
+	if eb.Fix != "brew install aws-elasticbeanstalk" {
+		t.Errorf("eb Fix = %q, want %q", eb.Fix, "brew install aws-elasticbeanstalk")
+	}
+}
+
+func findCheck(t *testing.T, name string) Check {
+	t.Helper()
+	for _, c := range buildChecks() {
+		if c.Name == name {
+			return c
+		}
+	}
+	t.Fatalf("check %q not found", name)
+	return Check{}
+}
+
 func namesOf(cs []Check) []string {
 	out := make([]string, len(cs))
 	for i, c := range cs {

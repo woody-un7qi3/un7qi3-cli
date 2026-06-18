@@ -7,6 +7,7 @@ package repocfg
 import (
 	_ "embed"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -257,4 +258,14 @@ func (l LogsConfig) PathOrDefault() string {
 func (c *Config) LogsFor(repo string) (LogsConfig, bool) {
 	lc, ok := c.Logs[repo]
 	return lc, ok
+}
+
+// LogsRepos 는 logs 가 등록된 레포 이름을 정렬해 반환한다(help/에러 안내용).
+func (c *Config) LogsRepos() []string {
+	repos := make([]string, 0, len(c.Logs))
+	for name := range c.Logs {
+		repos = append(repos, name)
+	}
+	sort.Strings(repos)
+	return repos
 }

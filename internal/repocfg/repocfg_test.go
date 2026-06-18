@@ -1,6 +1,7 @@
 package repocfg
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -233,5 +234,67 @@ func TestLogsForUnknownRepo(t *testing.T) {
 	cfg, _ := Load()
 	if _, ok := cfg.LogsFor("forceteller-app"); ok {
 		t.Error("logs 미등록 레포는 false 여야 함")
+	}
+}
+
+func TestLogsForAddedRepos(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+
+	// scala-api(=kr-app/en-app/jp-app) — kr/en/jp 모두 등록
+	scala, ok := cfg.LogsFor("scala-api")
+	if !ok {
+		t.Fatal("scala-api 가 logs 에 등록돼 있어야 함")
+	}
+	for _, tc := range []struct{ country, wantApp, wantRegion string }{
+		{"kr", "kr-app", "ap-northeast-2"},
+		{"en", "en-app", "ap-southeast-1"},
+		{"jp", "jp-app", "ap-northeast-1"},
+	} {
+		c, ok := scala.Countries[tc.country]
+		if !ok {
+			t.Errorf("scala-api: %s 국가 누락", tc.country)
+			continue
+		}
+		if c.App != tc.wantApp || c.Region != tc.wantRegion {
+			t.Errorf("scala-api/%s = %+v, want app=%s region=%s", tc.country, c, tc.wantApp, tc.wantRegion)
+		}
+	}
+
+	// sangdam-api — kr 만 (en/jp 미존재)
+	sg, ok := cfg.LogsFor("sangdam-api")
+	if !ok {
+		t.Fatal("sangdam-api 가 logs 에 등록돼 있어야 함")
+	}
+	if c, ok := sg.Countries["kr"]; !ok || c.App != "kr-sangdam-api" || c.Region != "ap-northeast-2" {
+		t.Errorf("sangdam-api/kr = %+v(ok=%v), want kr-sangdam-api/ap-northeast-2", c, ok)
+	}
+	if _, ok := sg.Countries["en"]; ok {
+		t.Error("sangdam-api 는 en 이 없어야 함")
+	}
+	if _, ok := sg.Countries["jp"]; ok {
+		t.Error("sangdam-api 는 jp 가 없어야 함")
+	}
+}
+
+func TestLogsReposSorted(t *testing.T) {
+	cfg := &Config{Logs: map[string]LogsConfig{
+		"charlie": {},
+		"alpha":   {},
+		"bravo":   {},
+	}}
+	got := cfg.LogsRepos()
+	want := []string{"alpha", "bravo", "charlie"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("LogsRepos() = %v, want %v", got, want)
+	}
+}
+
+func TestLogsReposEmpty(t *testing.T) {
+	cfg := &Config{} // Logs nil
+	if got := cfg.LogsRepos(); len(got) != 0 {
+		t.Errorf("nil Logs 는 빈 슬라이스여야 함: %v", got)
 	}
 }

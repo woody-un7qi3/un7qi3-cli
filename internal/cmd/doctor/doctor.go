@@ -159,6 +159,7 @@ func NewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().StringSliceVar(&rolesFilter, "role", nil, "팀 역할 필터 (backend, frontend, infra — 콤마 분리)")
+	cmd.Flags().Bool("json", false, "JSON 형식으로 출력")
 	return cmd
 }
 
@@ -519,10 +520,14 @@ func buildChecks() []Check {
 			Run:   versionCheck("aws", []string{"--version"}, `aws-cli/(\S+)`),
 		},
 		{
-			Name:  "eb",
-			Roles: []string{RoleInfra},
-			Fix:   "pip install awsebcli",
-			Run:   versionCheck("eb", []string{"--version"}, `EB CLI (\S+)`),
+			// eb 는 `uq logs` 전용 도구다. logs 를 안 쓰는 역할(프런트 등)에게
+			// 강제하지 않도록 Optional 로 둔다 — 미설치여도 doctor 하드 실패가
+			// 아니라 "선택"으로 표시. 실제 필요한 시점(uq logs)에 게이트가 잡는다.
+			Name:     "eb",
+			Roles:    []string{RoleInfra},
+			Optional: true,
+			Fix:      "brew install aws-elasticbeanstalk",
+			Run:      versionCheck("eb", []string{"--version"}, `EB CLI (\S+)`),
 		},
 		{
 			Name:  "gcloud",

@@ -57,7 +57,8 @@ runs:
             cmd: ["npm", "run", "{script}"]
             url: "http://localhost:4200"
 
-# logs: `uq logs <repo>` 대상 allowlist. 국가별 EB application + region 을 선언한다.
+# logs: `uq logs <대상>` allowlist. 키는 GitHub repo 가 아니어도 되며(논리적 식별자),
+#       국가별 EB application + region 을 선언한다.
 #       환경(beta/prod)·인스턴스는 aws 로 실시간 발견하므로 적지 않는다.
 logs:
   forceteller-api:
@@ -66,3 +67,13 @@ logs:
       kr: { app: kr-forceteller-api, region: ap-northeast-2 }
       en: { app: en-forceteller-api, region: ap-southeast-1 }
       jp: { app: jp-forceteller-api, region: ap-northeast-1 }
+  scala-api:
+    path: /var/log/web.stdout.log
+    countries:
+      kr: { app: kr-app, region: ap-northeast-2 }
+      en: { app: en-app, region: ap-southeast-1 }
+      jp: { app: jp-app, region: ap-northeast-1 }
+  sangdam-api:
+    path: /var/log/web.stdout.log
+    countries:
+      kr: { app: kr-sangdam-api, region: ap-northeast-2 }

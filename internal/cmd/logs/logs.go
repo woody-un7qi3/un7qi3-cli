@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/logs"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
@@ -32,21 +33,22 @@ var (
 
 // NewCmd returns the `uq logs` command.
 func NewCmd() *cobra.Command {
-	long := strings.Join([]string{
+	long := strings.Join(append([]string{
 		output.Desc("Elastic Beanstalk 다중 인스턴스의 로그를 멀티플렉스로 스트리밍합니다."),
 		"",
 		output.Desc("기본은 전체 인스턴스를 한 스트림으로. ") + output.Yellow("--split") + output.Desc(" 으로 인스턴스별 패널 분리."),
-		output.Desc("국가·환경은 위치인자로 지정하거나, TTY 에서 대화형 선택합니다."),
+		output.Desc("국가·환경은 위치인자로 지정하거나, 대상만 주면 대화형으로 고른 뒤 TUI 뷰어로 진입합니다."),
 		"",
 		output.Heading("예시"),
+		output.HelpExample("uq logs forceteller-api", "국가·환경 대화형 선택 → TUI 뷰어"),
 		output.HelpExample("uq logs forceteller-api kr beta", "kr beta 환경 전체 인스턴스"),
 		output.HelpExample("uq logs forceteller-api kr", "kr 환경 대화형 선택"),
 		output.HelpExample("uq logs forceteller-api kr beta --split", "인스턴스별 패널 분리"),
 		output.HelpExample("uq logs forceteller-api kr beta --grep ERROR", "ERROR 패턴만 필터"),
 		output.HelpExample("uq logs forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
-	}, "\n")
+	}, logsReposSection()...), "\n")
 	cmd := &cobra.Command{
-		Use:   "logs <repo> [필터...]",
+		Use:   "logs <대상> [필터...]",
 		Short: "EB 인스턴스 멀티플렉스 로그 스트리밍",
 		Long:  long,
 		Args:  cobra.MinimumNArgs(1),
@@ -65,6 +67,34 @@ func NewCmd() *cobra.Command {
 	return cmd
 }
 
+// logsReposSection 은 logs 를 쓸 수 있는 repo 를 초록색으로 나열한 help 섹션을 만든다.
+// repos.yml 의 logs: 를 읽어 동적으로 구성되므로 repo 가 추가되면 자동 반영된다.
+// 로드 실패나 빈 목록이면 nil 을 반환해 섹션을 생략한다.
+func logsReposSection() []string {
+	cfg, err := repocfg.Load()
+	if err != nil {
+		return nil
+	}
+	repos := cfg.LogsRepos()
+	if len(repos) == 0 {
+		return nil
+	}
+	return []string{
+		"",
+		output.Heading("사용 가능한 logs 대상"),
+		"  " + greenRepos(repos),
+	}
+}
+
+// greenRepos 는 repo 목록을 초록색으로 칠해 ", " 로 잇는다(help·에러 공용 포맷).
+func greenRepos(repos []string) string {
+	greened := make([]string, len(repos))
+	for i, r := range repos {
+		greened[i] = output.Green(r)
+	}
+	return strings.Join(greened, ", ")
+}
+
 func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	w := cmd.OutOrStderr()
 
@@ -76,12 +106,16 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	lc, ok := cfg.LogsFor(repo)
 	if !ok {
 		fmt.Fprintln(w, output.Red("✗"), repo, "는 logs 미등록입니다. repos.yml 의 logs: 에 추가하세요.")
+		if repos := cfg.LogsRepos(); len(repos) > 0 {
+			fmt.Fprintln(w, "  사용 가능한 대상:", greenRepos(repos))
+		}
 		os.Exit(1)
 	}
 
-	// 2. aws 인증 사전확인 (exit 4)
-	if s := authpkg.AwsStatus(); !s.OK {
-		return &authpkg.RequiredError{Msg: "aws 인증 안 됨. `uq auth login --aws-only` 실행"}
+	// 2. 외부 도구 사전확인 (exit 4) — aws 는 발견 단계 필수, eb 는 스트리밍에만
+	//    쓰여 dry-run 이면 면제.
+	if err := checkLogsPreconditions(authpkg.AwsStatus(), dryRun, uqexec.LookPath("eb")); err != nil {
+		return err
 	}
 
 	// 3. 국가 결정
@@ -165,6 +199,20 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 		return eblogs.RunTUI(tctx, ch, insts, grep, tgt.App, env)
 	}
 	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !noFollow, lines, grep)
+}
+
+// checkLogsPreconditions 는 logs 실행 전 외부 도구 상태를 검증한다.
+// aws 는 발견 단계(describe-environments 등)에 항상 필수다. eb 는 스트리밍에만
+// (eb ssh) 쓰이므로 dry-run 이면 생략한다 — dry-run 은 명령만 출력하기 때문.
+// eb 는 aws 자격증명으로 동작해 자체 인증이 없으니 presence(hasEB)만 본다.
+func checkLogsPreconditions(aws authpkg.Status, dryRun, hasEB bool) error {
+	if !aws.OK {
+		return &authpkg.RequiredError{Msg: "aws 인증 안 됨. `uq auth login --aws-only` 실행"}
+	}
+	if !dryRun && !hasEB {
+		return &authpkg.RequiredError{Msg: "eb CLI 미설치. `brew install aws-elasticbeanstalk` 실행"}
+	}
+	return nil
 }
 
 // isStdoutTTY 는 표준출력이 터미널인지.
