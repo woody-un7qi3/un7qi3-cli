@@ -22,9 +22,18 @@ func RenderLegend(insts []Instance) string {
 	return b.String()
 }
 
-// PrefixLine 은 로그 라인에 색상 [#k <인스턴스 id>] prefix 를 붙인다.
+// PrefixLine 은 로그 라인에 색상 [#k <단축 id>] prefix 를 붙인다(id 는 앞 5글자).
+// 전체 id 는 시작 시 범례(RenderLegend)에서 확인한다.
 func PrefixLine(num int, id, line string) string {
-	return colorNum(num, fmt.Sprintf("[#%d %s]", num, id)) + " " + line
+	return colorNum(num, fmt.Sprintf("[#%d %s]", num, shortID(id))) + " " + line
+}
+
+// shortID 는 인스턴스 id 의 앞 5글자만 반환한다(더 짧으면 그대로).
+func shortID(id string) string {
+	if len(id) > 5 {
+		return id[:5]
+	}
+	return id
 }
 
 // highlightLevel 은 ERROR 로그 라인 본문을 빨강으로 강조한다. 그 외는 원본 유지.
