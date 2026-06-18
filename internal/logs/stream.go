@@ -3,6 +3,7 @@ package logs
 import (
 	"bufio"
 	"context"
+	"os"
 	"os/exec"
 	"sync"
 )
@@ -41,22 +42,31 @@ func StreamLines(ctx context.Context, src Source, t Target, env string,
 			defer wg.Done()
 			args := src.TailArgs(t, env, in, follow, lines, grep)
 			cmd := execCommand(ctx, "eb", args...)
-			stdout, err := cmd.StdoutPipe()
-			cmd.Stderr = cmd.Stdout
-			if err == nil {
-				err = cmd.Start()
-			}
+			pr, pw, err := os.Pipe()
 			if err != nil {
 				ch <- LogLine{Num: in.Num, ID: in.ID, Text: err.Error(), Kind: KindConnErr}
 				return
 			}
-			sc := bufio.NewScanner(stdout)
-			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			cmd.Stdout = pw
+			cmd.Stderr = pw
+			if err := cmd.Start(); err != nil {
+				pw.Close()
+				pr.Close()
+				ch <- LogLine{Num: in.Num, ID: in.ID, Text: err.Error(), Kind: KindConnErr}
+				return
+			}
+			pw.Close() // 부모 쪽 write end 닫기 — 자식 종료 시 pr 가 EOF
+			sc := bufio.NewScanner(pr)
+			sc.Buffer(make([]byte, 4096), 1024*1024)
 			for sc.Scan() {
 				ch <- LogLine{Num: in.Num, ID: in.ID, Text: sc.Text(), Kind: KindLog}
 			}
+			scanErr := sc.Err()
+			pr.Close()
 			if err := cmd.Wait(); err != nil {
 				ch <- LogLine{Num: in.Num, ID: in.ID, Text: err.Error(), Kind: KindEnd}
+			} else if scanErr != nil {
+				ch <- LogLine{Num: in.Num, ID: in.ID, Text: scanErr.Error(), Kind: KindEnd}
 			}
 		}(in)
 	}
