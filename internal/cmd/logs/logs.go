@@ -25,6 +25,7 @@ var (
 	noFollow    bool
 	split       bool
 	dryRun      bool
+	linesN      int
 )
 
 // NewCmd returns the `uq logs` command.
@@ -52,6 +53,7 @@ func NewCmd() *cobra.Command {
 		},
 	}
 	cmd.Flags().IntVar(&instanceNum, "instance", 0, "1-base 인스턴스 번호로 한정 (0=전체)")
+	cmd.Flags().IntVar(&linesN, "lines", 100, "초기 백로그 줄 수 (--grep 와 함께 늘리면 과거 로그 검색)")
 	cmd.Flags().StringVar(&grep, "grep", "", "정규식으로 라인 필터")
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "follow 없이 최근 N줄만 출력하고 종료")
 	cmd.Flags().BoolVar(&split, "split", false, "인스턴스별 패널 분리 (cmux/iterm2)")
@@ -139,7 +141,10 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	}
 
 	// 6. dry-run / split / merged
-	lines := 100
+	lines := linesN
+	if lines < 1 {
+		lines = 1
+	}
 	if dryRun {
 		return printLogsPlan(w, tgt, env, insts, src, !noFollow, lines)
 	}
