@@ -30,7 +30,7 @@ type model struct {
 	filter       string
 	editing      bool
 	input        textinput.Model
-	hidden       map[int]bool
+	solo         int // 0=전체, N=#N 만 표시
 	paused       bool
 	vp           viewport.Model
 	ready        bool
@@ -41,13 +41,13 @@ type model struct {
 
 func newModel(insts []Instance, initialFilter, app, env string) model {
 	ti := textinput.New()
+	ti.Prompt = "" // 우리가 "/필터: " 라벨을 직접 붙이므로 기본 "> " 프롬프트 제거
 	ti.Placeholder = "필터 (대소문자 무시 부분문자열)"
 	ti.SetValue(initialFilter)
 	return model{
 		insts:  insts,
 		filter: initialFilter,
 		input:  ti,
-		hidden: map[int]bool{},
 		app:    app,
 		env:    env,
 	}
@@ -57,7 +57,7 @@ func (m model) Init() tea.Cmd { return nil }
 
 func (m *model) refresh() {
 	if m.ready {
-		m.vp.SetContent(viewContent(m.buf, m.filter, m.hidden))
+		m.vp.SetContent(viewContent(m.buf, m.filter, m.solo))
 	}
 }
 
@@ -125,10 +125,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if r := msg.String(); len(r) == 1 && r[0] >= '1' && r[0] <= '9' {
 			n := int(r[0] - '0')
-			if m.hidden[n] {
-				delete(m.hidden, n)
+			if m.solo == n {
+				m.solo = 0 // 같은 번호 다시 → 전체 복귀
 			} else {
-				m.hidden[n] = true
+				m.solo = n // 해당 인스턴스만
 			}
 			m.refresh()
 			return m, nil
@@ -151,7 +151,7 @@ func (m model) View() string {
 	var toggles strings.Builder
 	for _, in := range m.insts {
 		mark := "✓"
-		if m.hidden[in.Num] {
+		if m.solo != 0 && m.solo != in.Num {
 			mark = "✗"
 		}
 		fmt.Fprintf(&toggles, "[#%d %s]%s ", in.Num, shortID(in.ID), mark)
@@ -190,9 +190,10 @@ func RunTUI(ctx context.Context, ch <-chan LogLine, insts []Instance, initialFil
 	return err
 }
 
-// visible 은 라인이 현재 필터·인스턴스 토글 기준으로 보여야 하는지.
-func visible(ln LogLine, filter string, hidden map[int]bool) bool {
-	if hidden[ln.Num] {
+// visible 은 라인이 현재 필터·솔로 기준으로 보여야 하는지.
+// solo 가 0 이면 전체, N 이면 #N 인스턴스만.
+func visible(ln LogLine, filter string, solo int) bool {
+	if solo != 0 && ln.Num != solo {
 		return false
 	}
 	if filter == "" {
@@ -202,11 +203,11 @@ func visible(ln LogLine, filter string, hidden map[int]bool) bool {
 }
 
 // viewContent 는 버퍼를 필터링해 렌더된 줄들을 줄바꿈으로 결합한다.
-func viewContent(buf []LogLine, filter string, hidden map[int]bool) string {
+func viewContent(buf []LogLine, filter string, solo int) string {
 	var b strings.Builder
 	first := true
 	for _, ln := range buf {
-		if !visible(ln, filter, hidden) {
+		if !visible(ln, filter, solo) {
 			continue
 		}
 		if !first {

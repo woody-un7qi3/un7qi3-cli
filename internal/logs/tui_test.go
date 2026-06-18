@@ -40,31 +40,34 @@ func TestModelSpaceTogglesPause(t *testing.T) {
 	}
 }
 
-func TestModelDigitTogglesInstance(t *testing.T) {
+func TestModelDigitSolosInstance(t *testing.T) {
 	m := newModel([]Instance{{Num: 2, ID: "i-b"}}, "", "", "")
 	m = sendKey(m, "2")
-	if !m.hidden[2] {
-		t.Error("숫자 키로 인스턴스 숨김")
+	if m.solo != 2 {
+		t.Errorf("숫자 키로 솔로(#2) 기대, 실제 solo=%d", m.solo)
 	}
 	m = sendKey(m, "2")
-	if m.hidden[2] {
-		t.Error("다시 누르면 표시")
+	if m.solo != 0 {
+		t.Errorf("같은 번호 다시 → 전체 복귀(solo=0) 기대, 실제 %d", m.solo)
 	}
 }
 
 func TestVisible(t *testing.T) {
 	ln := LogLine{Num: 1, ID: "i-a", Text: "x ERROR y", Kind: KindLog}
-	if !visible(ln, "", nil) {
-		t.Error("필터 없으면 보여야 함")
+	if !visible(ln, "", 0) {
+		t.Error("필터·솔로 없으면 보여야 함")
 	}
-	if !visible(ln, "error", nil) {
+	if !visible(ln, "error", 0) {
 		t.Error("대소문자 무시 부분문자열 매칭")
 	}
-	if visible(ln, "zzz", nil) {
+	if visible(ln, "zzz", 0) {
 		t.Error("미매칭이면 숨김")
 	}
-	if visible(ln, "", map[int]bool{1: true}) {
-		t.Error("숨긴 인스턴스는 안 보임")
+	if !visible(ln, "", 1) {
+		t.Error("솔로가 자기 번호면 보여야 함")
+	}
+	if visible(ln, "", 2) {
+		t.Error("솔로가 다른 번호면 안 보임")
 	}
 }
 
@@ -73,9 +76,13 @@ func TestViewContentFiltersAndJoins(t *testing.T) {
 		{Num: 1, ID: "i-a", Text: "alpha", Kind: KindLog},
 		{Num: 2, ID: "i-b", Text: "beta", Kind: KindLog},
 	}
-	out := viewContent(buf, "alpha", nil)
+	out := viewContent(buf, "alpha", 0)
 	if !strings.Contains(out, "alpha") || strings.Contains(out, "beta") {
 		t.Errorf("필터 결과 틀림:\n%s", out)
+	}
+	solo := viewContent(buf, "", 2)
+	if strings.Contains(solo, "alpha") || !strings.Contains(solo, "beta") {
+		t.Errorf("솔로 #2 결과 틀림:\n%s", solo)
 	}
 }
 
