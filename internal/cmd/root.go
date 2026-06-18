@@ -22,9 +22,7 @@ import (
 )
 
 var (
-	flagJSON    bool
 	flagVerbose bool
-	flagConfig  string
 )
 
 // Top-level command groups. The IDs are arbitrary stable strings; the Titles
@@ -82,11 +80,10 @@ var rootCmd = &cobra.Command{
 		output.Desc("사람도 사용할 수 있도록 친화적인 출력을 제공합니다."),
 		"",
 		output.Heading("자주 쓰는 명령"),
-		output.HelpExample("uq init", "최초 설정 (인증 + 워크스페이스)"),
-		output.HelpExample("uq doctor", "필수 도구 설치 점검"),
-		output.HelpExample("uq auth status", "gh / aws / gcloud 인증 상태"),
-		output.HelpExample("uq repo list", "un7qi3inc 레포 목록"),
-		output.HelpExample("uq repo clone <name>", "~/un7qi3/<name>에 클론"),
+		output.HelpExample("uq init", "최초 설정"),
+		output.HelpExample("uq run <repo>", "레포의 로컬 개발 서버 실행"),
+		output.HelpExample("uq repo clone <name>", "워크스페이스에 레포 클론"),
+		output.HelpExample("uq logs <repo>", "EB 인스턴스 로그 스트리밍"),
 	}, "\n"),
 	SilenceUsage:  true,
 	SilenceErrors: false,
@@ -112,9 +109,10 @@ func init() {
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetHelpTemplate(helpTemplate)
 
-	rootCmd.PersistentFlags().BoolVar(&flagJSON, "json", false, "JSON 형식으로 출력")
+	// --json 은 바인딩 변수 없이 등록만 한다. 출력 형식이 필요한 서브커맨드가
+	// 각자 cmd.Flags().GetBool("json") 으로 조회한다.
+	rootCmd.PersistentFlags().Bool("json", false, "JSON 형식으로 출력")
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "상세 로그 출력")
-	rootCmd.PersistentFlags().StringVar(&flagConfig, "config", "", "설정 파일 경로")
 
 	helpCmd := newHelpCmd()
 	helpCmd.GroupID = groupTools
@@ -129,24 +127,32 @@ func init() {
 	rootCmd.AddCommand(completionCmd)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
 
-	// 시작하기 — 새 머신/팀원 온보딩, uq 자체 유지보수
+	// 시작하기 — 새 머신/팀원 온보딩, 환경·인증 준비
 	rootCmd.AddCommand(inGroup(initcmd.NewCmd(), groupSetup))
 	rootCmd.AddCommand(inGroup(doctor.NewCmd(), groupSetup))
-	rootCmd.AddCommand(inGroup(upgrade.NewCmd(), groupSetup))
-	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupSetup))
+	rootCmd.AddCommand(inGroup(auth.NewCmd(), groupSetup))
 
-	// 개발 워크플로 — 인증, 레포, 로컬 실행, 시크릿
-	rootCmd.AddCommand(inGroup(auth.NewCmd(), groupDev))
+	// 개발 워크플로 — 레포, 로컬 실행, 시크릿
 	rootCmd.AddCommand(inGroup(repo.NewCmd(), groupDev))
 	rootCmd.AddCommand(inGroup(runcmd.NewCmd(), groupDev))
-	rootCmd.AddCommand(inGroup(envcmd.NewCmd(), groupDev))
+	// env 는 아직 미지원(stub)이라 --help 에서 숨긴다. 명령 자체는 남겨두어
+	// `uq env` 직접 호출은 가능하지만, 안정화 전까지 목록에 노출하지 않는다.
+	envCmd := inGroup(envcmd.NewCmd(), groupDev)
+	envCmd.Hidden = true
+	rootCmd.AddCommand(envCmd)
 
 	// 배포 & 운영
 	rootCmd.AddCommand(inGroup(deploy.NewCmd(), groupOps))
 	rootCmd.AddCommand(inGroup(logs.NewCmd(), groupOps))
 
-	// 도구
-	rootCmd.AddCommand(inGroup(skills.NewCmd(), groupTools))
+	// 도구 — uq 자체 메타/유지보수 + 유틸
+	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupTools))
+	rootCmd.AddCommand(inGroup(upgrade.NewCmd(), groupTools))
+	// skills 는 아직 미지원(stub)이라 --help 에서 숨긴다. 명령 자체는 남겨두어
+	// `uq skills` 직접 호출은 가능하지만, 안정화 전까지 목록에 노출하지 않는다.
+	skillsCmd := inGroup(skills.NewCmd(), groupTools)
+	skillsCmd.Hidden = true
+	rootCmd.AddCommand(skillsCmd)
 
 	// -h/--help 플래그 설명을 한글로
 	rootCmd.PersistentFlags().BoolP("help", "h", false, "도움말 표시")
@@ -263,5 +269,45 @@ func renderCommandList(cmds []*cobra.Command) string {
 
 // Execute runs the root command.
 func Execute() error {
+	helpOnEmptyArgs(rootCmd)
 	return rootCmd.Execute()
+}
+
+// helpOnEmptyArgs walks the command tree and softens every command that would
+// reject a bare (zero-arg) invocation — e.g. `uq run`, `uq logs`,
+// `uq env pull` — so that calling it with no arguments prints its own help
+// (exit 0) instead of cobra's "accepts 1 arg(s), received 0" usage error
+// (exit 2). Commands that already accept zero args are left untouched, and
+// extra/invalid args still fail their original validator.
+func helpOnEmptyArgs(c *cobra.Command) {
+	for _, sub := range c.Commands() {
+		helpOnEmptyArgs(sub)
+	}
+	// Parent-only commands have no Run*; cobra already shows help for them.
+	if c.RunE == nil && c.Run == nil {
+		return
+	}
+	validate := c.Args
+	if validate == nil || validate(c, nil) == nil {
+		return // accepts anything, or is already happy with zero args
+	}
+
+	origRunE, origRun := c.RunE, c.Run
+	c.Args = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		return validate(cmd, args)
+	}
+	c.RunE = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return cmd.Help()
+		}
+		if origRunE != nil {
+			return origRunE(cmd, args)
+		}
+		origRun(cmd, args)
+		return nil
+	}
+	c.Run = nil
 }
