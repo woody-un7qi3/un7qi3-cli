@@ -2,8 +2,43 @@ package logs
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestTailArgsWithKeyAddsCustom(t *testing.T) {
+	s := NewEBSource("/var/log/web.stdout.log")
+	s.keyPath = "/home/u/.ssh/k.pem"
+	got := s.TailArgs(Target{Region: "ap-northeast-2"}, "api-prod-kr-j21", Instance{Num: 3}, true, 100)
+	want := []string{"ssh", "api-prod-kr-j21", "--region", "ap-northeast-2", "-n", "3",
+		"--custom", "ssh -i /home/u/.ssh/k.pem -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10",
+		"-c", "sudo tail -n 100 -F /var/log/web.stdout.log"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("with-key argv\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestResolveKeySetsPemPath(t *testing.T) {
+	s := NewEBSource("/p")
+	s.runner = func(name string, args ...string) ([]byte, error) { return []byte("forceteller-service\n"), nil }
+	if err := s.ResolveKey(Target{App: "a", Region: "r"}, "e"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(s.keyPath, "/.ssh/forceteller-service.pem") {
+		t.Errorf("keyPath=%q", s.keyPath)
+	}
+}
+
+func TestResolveKeyNoneLeavesEmpty(t *testing.T) {
+	s := NewEBSource("/p")
+	s.runner = func(name string, args ...string) ([]byte, error) { return []byte("None\n"), nil }
+	if err := s.ResolveKey(Target{}, "e"); err != nil {
+		t.Fatal(err)
+	}
+	if s.keyPath != "" {
+		t.Errorf("keyPath 는 비어야 함, got %q", s.keyPath)
+	}
+}
 
 func newFakeEB(out map[string][]byte) *EBSource {
 	s := NewEBSource("/var/log/web.stdout.log")

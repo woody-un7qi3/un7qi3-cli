@@ -3,6 +3,8 @@ package logs
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -11,8 +13,9 @@ import (
 
 // EBSource 는 eb ssh + aws elasticbeanstalk 로 동작하는 Source 구현.
 type EBSource struct {
-	path   string
-	runner func(name string, args ...string) ([]byte, error)
+	path    string
+	keyPath string // 비면 eb 기본 ssh. 설정되면 --custom 으로 accept-new 주입.
+	runner  func(name string, args ...string) ([]byte, error)
 }
 
 // NewEBSource 는 기본 runner(uqexec.Run)를 쓰는 EB 드라이버를 만든다.
@@ -63,5 +66,38 @@ func (s *EBSource) TailArgs(t Target, env string, inst Instance, follow bool, li
 		tail += " -F"
 	}
 	tail += " " + s.path
-	return []string{"ssh", env, "--region", t.Region, "-n", strconv.Itoa(inst.Num), "-c", tail}
+	args := []string{"ssh", env, "--region", t.Region, "-n", strconv.Itoa(inst.Num)}
+	if s.keyPath != "" {
+		args = append(args, "--custom", sshCustom(s.keyPath))
+	}
+	return append(args, "-c", tail)
+}
+
+// sshCustom 은 eb ssh --custom 에 넘길 ssh 명령. StrictHostKeyChecking=accept-new 로
+// 호스트 키 프롬프트를 없애 다중 인스턴스 동시 tail 시 stdin 충돌을 막고, 비대화형
+// 접속을 보장한다. ConnectTimeout 으로 미허용 IP 의 행을 빨리 끊는다.
+func sshCustom(keyPath string) string {
+	return fmt.Sprintf("ssh -i %s -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10", keyPath)
+}
+
+// ResolveKey 는 환경의 EC2 KeyName 을 조회해 ~/.ssh/<name>.pem 을 keyPath 로 설정한다.
+// 키를 못 찾으면 keyPath 를 비워둬 eb 기본 ssh 로 폴백한다(이 경우 호스트 키 프롬프트 가능).
+func (s *EBSource) ResolveKey(t Target, env string) error {
+	out, err := s.runner("aws", "elasticbeanstalk", "describe-configuration-settings",
+		"--application-name", t.App, "--environment-name", env, "--region", t.Region,
+		"--query", "ConfigurationSettings[0].OptionSettings[?OptionName=='EC2KeyName'].Value",
+		"--output", "text")
+	if err != nil {
+		return fmt.Errorf("EC2 KeyName 조회 실패(%s): %w", env, err)
+	}
+	name := strings.TrimSpace(string(out))
+	if name == "" || name == "None" {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("홈 디렉토리 확인 실패: %w", err)
+	}
+	s.keyPath = filepath.Join(home, ".ssh", name+".pem")
+	return nil
 }

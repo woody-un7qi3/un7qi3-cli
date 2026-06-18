@@ -117,6 +117,13 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 		os.Exit(1)
 	}
 
+	// 4-1. SSH 키 해석 — eb ssh --custom 으로 accept-new 를 주입해 호스트 키 프롬프트를
+	// 없앤다(다중 인스턴스 동시 tail 시 stdin 충돌 방지). 실패해도 치명적이지 않으므로
+	// 경고만 하고 eb 기본 ssh 로 진행한다.
+	if err := src.ResolveKey(tgt, env); err != nil {
+		fmt.Fprintln(w, output.Yellow("⚠"), err)
+	}
+
 	// 5. 인스턴스 발견 (스냅샷)
 	insts, err := src.Instances(tgt, env)
 	if err != nil {
