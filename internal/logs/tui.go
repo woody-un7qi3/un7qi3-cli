@@ -25,18 +25,21 @@ var headerStyle = lipgloss.NewStyle().Bold(true)
 type logMsg LogLine
 
 type model struct {
-	insts   []Instance
-	buf     []LogLine
-	filter  string
-	editing bool
-	input   textinput.Model
-	hidden  map[int]bool
-	paused  bool
-	vp      viewport.Model
-	ready   bool
+	insts        []Instance
+	buf          []LogLine
+	filter       string
+	editing      bool
+	input        textinput.Model
+	hidden       map[int]bool
+	paused       bool
+	vp           viewport.Model
+	ready        bool
+	app          string
+	env          string
+	userScrolled bool
 }
 
-func newModel(insts []Instance, initialFilter string) model {
+func newModel(insts []Instance, initialFilter, app, env string) model {
 	ti := textinput.New()
 	ti.Placeholder = "필터 (대소문자 무시 부분문자열)"
 	ti.SetValue(initialFilter)
@@ -45,6 +48,8 @@ func newModel(insts []Instance, initialFilter string) model {
 		filter: initialFilter,
 		input:  ti,
 		hidden: map[int]bool{},
+		app:    app,
+		env:    env,
 	}
 }
 
@@ -61,7 +66,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case logMsg:
 		m.buf = appendBuf(m.buf, LogLine(msg))
 		m.refresh()
-		if !m.paused && m.ready {
+		if !m.paused && !m.userScrolled && m.ready {
 			m.vp.GotoBottom()
 		}
 		return m, nil
@@ -106,10 +111,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case "g":
 			m.vp.GotoTop()
+			m.userScrolled = true
 			return m, nil
 		case "G":
 			m.vp.GotoBottom()
+			m.userScrolled = false // 맨 아래로 = 자동추적 재개
 			return m, nil
+		case "up", "down", "pgup", "pgdown", "k", "j", "home", "end":
+			m.userScrolled = true
+			var cmd tea.Cmd
+			m.vp, cmd = m.vp.Update(msg)
+			return m, cmd
 		}
 		if r := msg.String(); len(r) == 1 && r[0] >= '1' && r[0] <= '9' {
 			n := int(r[0] - '0')
@@ -145,7 +157,7 @@ func (m model) View() string {
 		fmt.Fprintf(&toggles, "[#%d %s]%s ", in.Num, shortID(in.ID), mark)
 	}
 	header := headerStyle.Render(
-		fmt.Sprintf("uq logs  %s  %s", status, toggles.String()))
+		fmt.Sprintf("uq logs  %s · %s  [%s]  %s", m.app, m.env, status, toggles.String()))
 
 	var footer string
 	if m.editing {
@@ -157,10 +169,10 @@ func (m model) View() string {
 }
 
 // RunTUI 는 채널의 LogLine 을 bubbletea 프로그램에 주입하며 TUI 를 실행한다.
-func RunTUI(ctx context.Context, ch <-chan LogLine, insts []Instance, initialFilter string) error {
+func RunTUI(ctx context.Context, ch <-chan LogLine, insts []Instance, initialFilter, app, env string) error {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	p := tea.NewProgram(newModel(insts, initialFilter), tea.WithAltScreen(), tea.WithContext(rctx))
+	p := tea.NewProgram(newModel(insts, initialFilter, app, env), tea.WithAltScreen(), tea.WithContext(rctx))
 	go func() {
 		for {
 			select {

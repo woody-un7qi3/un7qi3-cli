@@ -162,7 +162,7 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 		tctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
 		ch := eblogs.StreamLines(tctx, src, tgt, env, insts, true, lines, grep)
-		return eblogs.RunTUI(tctx, ch, insts, grep)
+		return eblogs.RunTUI(tctx, ch, insts, grep, tgt.App, env)
 	}
 	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !noFollow, lines, grep)
 }

@@ -13,7 +13,7 @@ func sendKey(m model, s string) model {
 }
 
 func TestModelLogMsgAppends(t *testing.T) {
-	m := newModel([]Instance{{Num: 1, ID: "i-a"}}, "")
+	m := newModel([]Instance{{Num: 1, ID: "i-a"}}, "", "", "")
 	nm, _ := m.Update(logMsg{Num: 1, ID: "i-a", Text: "hello", Kind: KindLog})
 	if len(nm.(model).buf) != 1 {
 		t.Fatalf("buf 1 기대, 실제 %d", len(nm.(model).buf))
@@ -21,7 +21,7 @@ func TestModelLogMsgAppends(t *testing.T) {
 }
 
 func TestModelSlashEntersEditing(t *testing.T) {
-	m := newModel(nil, "")
+	m := newModel(nil, "", "", "")
 	m = sendKey(m, "/")
 	if !m.editing {
 		t.Error("/ 누르면 편집 모드여야 함")
@@ -29,7 +29,7 @@ func TestModelSlashEntersEditing(t *testing.T) {
 }
 
 func TestModelSpaceTogglesPause(t *testing.T) {
-	m := newModel(nil, "")
+	m := newModel(nil, "", "", "")
 	m = sendKey(m, " ")
 	if !m.paused {
 		t.Error("space 누르면 일시정지")
@@ -41,7 +41,7 @@ func TestModelSpaceTogglesPause(t *testing.T) {
 }
 
 func TestModelDigitTogglesInstance(t *testing.T) {
-	m := newModel([]Instance{{Num: 2, ID: "i-b"}}, "")
+	m := newModel([]Instance{{Num: 2, ID: "i-b"}}, "", "", "")
 	m = sendKey(m, "2")
 	if !m.hidden[2] {
 		t.Error("숫자 키로 인스턴스 숨김")
