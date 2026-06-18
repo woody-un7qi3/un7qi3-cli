@@ -118,9 +118,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.userScrolled = false // 맨 아래로 = 자동추적 재개
 			return m, nil
 		case "up", "down", "pgup", "pgdown", "k", "j", "home", "end":
-			m.userScrolled = true
 			var cmd tea.Cmd
 			m.vp, cmd = m.vp.Update(msg)
+			m.userScrolled = !m.vp.AtBottom() // 맨 아래면 자동추적 재개
 			return m, cmd
 		}
 		if r := msg.String(); len(r) == 1 && r[0] >= '1' && r[0] <= '9' {
@@ -139,6 +139,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.vp, cmd = m.vp.Update(msg)
+		m.userScrolled = !m.vp.AtBottom()
 		return m, cmd
 	}
 	return m, nil
