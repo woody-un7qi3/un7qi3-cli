@@ -22,6 +22,16 @@ const (
 
 var headerStyle = lipgloss.NewStyle().Bold(true)
 
+// statusStyle 은 헤더의 follow 상태 배지 스타일을 반환한다. 일시정지는 빨강으로
+// 강조해 실시간(👀)과 한눈에 구분되게 한다.
+func statusStyle(paused bool) lipgloss.Style {
+	s := lipgloss.NewStyle().Bold(true)
+	if paused {
+		s = s.Foreground(lipgloss.Color("1")) // 빨강
+	}
+	return s
+}
+
 type logMsg LogLine
 
 type model struct {
@@ -149,10 +159,11 @@ func (m model) View() string {
 	if !m.ready {
 		return "로딩 중…"
 	}
-	status := "👀 실시간"
+	statusLabel := "👀 실시간"
 	if m.paused {
-		status = "⏸ 일시정지"
+		statusLabel = "⏸ 일시정지"
 	}
+	status := statusStyle(m.paused).Render(statusLabel)
 	var toggles strings.Builder
 	for _, in := range m.insts {
 		mark := "✓"
@@ -162,7 +173,11 @@ func (m model) View() string {
 		// 각 인스턴스 토글을 그 인스턴스 색으로 — 상단 색과 로그 줄 [#k] 색이 일치.
 		fmt.Fprint(&toggles, colorNum(in.Num, fmt.Sprintf("[#%d %s]", in.Num, shortID(in.ID)))+mark+" ")
 	}
-	header := headerStyle.Render(fmt.Sprintf("uq logs  %s · %s  [%s]  ", m.app, m.env, status)) +
+	// status 는 자체 색(일시정지=빨강)을 가지므로 headerStyle.Render 안에 끼워넣지
+	// 않고 분리해 이어붙인다 — 바깥 Render 가 색을 덮어쓰는 것을 막는다.
+	header := headerStyle.Render(fmt.Sprintf("uq logs  %s · %s  [", m.app, m.env)) +
+		status +
+		headerStyle.Render("]  ") +
 		toggles.String()
 
 	var footer string

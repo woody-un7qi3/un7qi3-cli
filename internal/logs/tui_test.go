@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 func sendKey(m model, s string) model {
@@ -37,6 +38,16 @@ func TestModelSpaceTogglesPause(t *testing.T) {
 	m = sendKey(m, " ")
 	if m.paused {
 		t.Error("다시 누르면 재개")
+	}
+}
+
+func TestStatusStylePausedIsRed(t *testing.T) {
+	red := lipgloss.Color("1")
+	if got := statusStyle(true).GetForeground(); got != red {
+		t.Errorf("일시정지 전경색 = %v, want 빨강(%v)", got, red)
+	}
+	if got := statusStyle(false).GetForeground(); got == red {
+		t.Error("실시간 상태는 빨강이 아니어야 함")
 	}
 }
 
