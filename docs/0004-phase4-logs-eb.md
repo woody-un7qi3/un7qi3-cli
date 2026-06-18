@@ -7,9 +7,9 @@
 `uq logs <repo>` 는 현재 Phase 0 stub("TODO: 아직 구현되지 않음")이다. un7qi3 서비스 대부분이 **AWS Elastic Beanstalk(EB)** 로 구성되어 있고, 지금 개발자는 로그를 보려면 수동으로:
 
 ```
-eb ssh app-beta-kr     # 인스턴스 한 대에 SSH 접속
+eb ssh api-beta-kr-j21       # 인스턴스 한 대에 SSH 접속 (환경명에 -j21 같은 불규칙 suffix)
 cd /var/log
-tail -f web.log        # 직접 tail
+tail -f web.stdout.log       # 직접 tail
 ```
 
 이 흐름의 문제:
@@ -23,7 +23,8 @@ tail -f web.log        # 직접 tail
 ### 조사 결과 — 현재 코드/인프라 전제
 
 - `aws` CLI 는 doctor 가 추적(설치/버전 점검). `eb` CLI 와 `session-manager-plugin` 은 미추적.
-- 레포↔EB 매핑 정보가 어디에도 없음. `.uq.yml` 매니페스트(`internal/manifest`)는 주석상 "logs metadata" 를 담는 용도로 이미 설계됨 → 설정의 자연스러운 집.
+- **환경명 규칙이 프로젝트마다 다르고 불규칙하다** — 예: forceteller-api 는 `api-beta-kr-j21`(suffix `-j21` 은 재생성 시 바뀜), 다른 프로젝트는 `production`·`myapp-live` 등 전혀 다른 규칙. 손으로 적거나 템플릿/축(stage·country)으로 생성하는 방식은 일반화되지 않는다 → **실시간 발견(discovery) + 부분문자열 필터가 유일하게 견고**하다.
+- 환경 목록은 `aws elasticbeanstalk describe-environments --application-name <app> --query "Environments[?Status=='Ready'].EnvironmentName"` 로 발견. application 이름은 레포의 `.elasticbeanstalk/config.yml` 의 `global.application_name` 에서 읽는다. (`eb list` 로도 가능하나 `*` 마커 파싱이 필요해 aws 쪽을 택함.)
 - `internal/run/split.go` 에 cmux/iTerm2/ghostty/AppleTerminal 패널 여는 로직과 `internal/run/terminal.go` 의 멀티플렉서 감지(`DetectMultiplexer`)가 이미 있음 → `--split` 재사용 대상.
 - `eb ssh <env>` 는 cwd 의 `.elasticbeanstalk/config.yml`(application/region)을 읽는다. 따라서 uq 는 **레포의 로컬 클론 디렉토리에서** eb ssh 를 실행해야 한다 (`uq run` 이 reposDir 에서 도는 것과 동일).
 
@@ -37,36 +38,42 @@ tail -f web.log        # 직접 tail
 ## CLI 표면
 
 ```
-uq logs <repo> [--env <name>] [--instance N] [--grep <regex>] [--split] [--no-follow] [--dry-run]
+uq logs <repo> [필터...] [--instance N] [--grep <regex>] [--split] [--no-follow] [--dry-run]
 ```
 
+환경 이름 규칙은 **프로젝트마다 다르다**(`api-beta-kr-j21`, `production`, `myapp-live` …). 따라서 stage/country 같은 축을 가정하지 않고, **실시간 발견된 환경 목록에서 TUI 로 선택**하는 것을 기본으로 한다. 위치인자 `필터` 는 그 목록을 미리 좁히는 부분문자열(대소문자 무시, 여러 개면 AND)일 뿐, 이름 규칙을 해석하지 않는다.
+
 - `<repo>` — 워크스페이스에 클론된 레포 이름 (uq run/repo 와 동일 해석).
-- `--env <name>` — EB 환경 선택. `.uq.yml` 의 `environments` 와 매칭(부분 문자열 허용, 예: `beta` → `app-beta-kr`). 생략하거나 매칭이 2개 이상이면 **huh TUI 로 선택**.
+- `필터...` — 선택. 발견된 환경 이름에 **모두 포함**되는 것만 남긴다. 예: `beta kr` → `api-beta-kr-j21`.
 - `--instance N` — 1-base 인스턴스 번호로 한정(`eb ssh -n N` 의 번호). 생략 시 전체 인스턴스.
 - `--grep <regex>` — 클라이언트단 정규식 라인 필터.
 - `--split` — 인스턴스별 패널 분리(멀티프로세스 분할 로직 재사용). 생략 시 한 화면 merged. `--no-follow` 와 상호 배타(스냅샷을 패널로 나눌 이유가 없음 → exit 2).
 - `--no-follow` — `tail -F` 없이 최근 N줄(기본 100)만 출력하고 종료. 생략 시 실시간 follow(기본).
-- `--dry-run` — 해석된 환경·인스턴스 목록·각 인스턴스의 eb ssh 명령을 출력하고 종료(실행 안 함).
+- `--dry-run` — 해석된 EB 환경명·인스턴스 목록·각 인스턴스의 eb ssh 명령을 출력하고 종료(실행 안 함).
 
-> 기본 동작은 **실시간 follow + merged**. 즉 `uq logs forceteller-api` → 환경 선택 → 전 인스턴스의 `web.log` 를 `[env#i]` prefix 로 한 화면에 실시간 합쳐 출력.
+> 기본 동작은 **실시간 follow + merged**. 즉 `uq logs forceteller-api` → (발견된 환경) TUI 선택 → 해당 환경 전 인스턴스의 `web.stdout.log` 를 `[env#i]` prefix 로 한 화면에 실시간 합쳐 출력.
+
+### 환경 결정 흐름
+
+1. `.elasticbeanstalk/config.yml` 에서 application 이름을 읽어 `aws elasticbeanstalk describe-environments` 로 Ready 환경 목록을 발견.
+2. 위치인자 `필터` 가 있으면 이름에 모든 필터를 포함하는 것만 남김(대소문자 무시).
+3. 남은 환경이 1개면 자동 확정, 여러 개면 **huh TUI** 로 선택.
+4. 비TTY 에서 모호(>1)하면 exit 1 — 자동화는 단일 환경으로 좁혀지는 필터를 줘야 한다.
 
 ## 설정 — `.uq.yml` 의 logs 블록
 
-레포마다 EB 환경명·로그 경로가 다르므로 중앙 `repos.yml` 이 아니라 레포 안 `.uq.yml` 에 둔다.
+환경 목록은 실시간 발견하므로 **`.uq.yml` 에 환경을 적지 않는다.** 발견·이름규칙으로 알 수 없는 것(로그 파일 경로 등)만 둔다. 중앙 `repos.yml` 이 아니라 레포 안 `.uq.yml` 에 둔다.
 
 ```yaml
 # forceteller-api/.uq.yml
 logs:
-  type: eb                 # 기본 eb. 미래: ecs / k8s ...
-  path: /var/log/web.log   # 기본 /var/log/web.log
-  environments:            # 선택 후보 (라벨=실제 EB 환경명)
-    - app-beta-kr
-    - app-prod-kr
+  type: eb                       # 기본 eb. 미래: ecs / k8s ...
+  path: /var/log/web.stdout.log  # 기본값. 레포가 다르면 오버라이드
+  # app: <application-name>      # 선택. 보통 .elasticbeanstalk/config.yml 에서 읽으므로 생략
 ```
 
-- `type` 생략 시 `eb`. `path` 생략 시 `/var/log/web.log`.
-- `environments` 가 1개면 자동 선택, 여러 개면 `--env` 매칭 후 남은 것 TUI.
-- `.uq.yml` 또는 `logs` 블록이 없으면 exit 1 + 작성 안내.
+- `type` 생략 시 `eb`. `path` 생략 시 `/var/log/web.stdout.log`.
+- `logs` 블록 전체가 없어도 기본값으로 동작(eb + 기본 경로). 환경 발견에 필요한 application 이름은 `.elasticbeanstalk/config.yml` 에서 읽으며, 그것도 없으면 exit 1 + `eb init` 안내.
 
 매니페스트 확장(`internal/manifest/manifest.go`):
 
@@ -76,9 +83,9 @@ type Manifest struct {
 }
 
 type LogsConfig struct {
-    Type         string   `yaml:"type"`         // "" → "eb"
-    Path         string   `yaml:"path"`         // "" → "/var/log/web.log"
-    Environments []string `yaml:"environments"`
+    Type string `yaml:"type"` // "" → "eb"
+    Path string `yaml:"path"` // "" → "/var/log/web.stdout.log"
+    App  string `yaml:"app"`  // "" → .elasticbeanstalk/config.yml 의 global.application_name
 }
 ```
 
@@ -87,12 +94,14 @@ type LogsConfig struct {
 ```go
 // internal/logs/source.go
 type Instance struct {
-    ID    string // EC2 인스턴스 id (라벨/표시·--instance 검증용)
+    ID    string // EC2 인스턴스 id (라벨/표시용)
     Num   int    // 1-base, eb ssh -n 번호
-    Label string // 표시용, 예: "app-beta-kr#1"
+    Label string // 표시용, 예: "api-beta-kr-j21#1"
 }
 
 type Source interface {
+    // Environments 는 발견된 환경 이름 목록을 반환한다(Ready 상태).
+    Environments() ([]string, error)
     // Instances 는 환경의 인스턴스 목록을 반환한다.
     Instances(env string) ([]Instance, error)
     // TailArgs 는 한 인스턴스의 로그를 스트리밍하는 argv 를 반환한다.
@@ -102,6 +111,7 @@ type Source interface {
 
 EB 드라이버(`internal/logs/eb.go`):
 
+- `Environments`: application 이름(`.uq.yml` 의 `app` 또는 `.elasticbeanstalk/config.yml` 의 `global.application_name`)으로 `aws elasticbeanstalk describe-environments --application-name <app> --query "Environments[?Status=='Ready'].EnvironmentName" --output text` → 이름 목록.
 - `Instances`: `aws elasticbeanstalk describe-environment-resources --environment-name <env>` → `Instances[].Id`. 개수로 `Num` 1..N 부여, 라벨 `"<env>#<Num>"`.
   - region 은 레포의 `.elasticbeanstalk/config.yml` 또는 aws 기본 설정을 사용.
 - `TailArgs`: `eb ssh <env> -n <Num> -c "sudo tail <follow?-F : -n N> <path>"`.
@@ -169,24 +179,24 @@ uq logs                                # exit 2 (인자 필요)
 # 사전확인: aws 미인증 시 (세션에서 시뮬레이션)
 #   → exit 4, "uq auth login --aws-only" 안내
 
-# .uq.yml 없는 레포
-uq logs <클론됐지만_uq.yml_없는_레포>   # exit 1, .uq.yml/logs 작성 안내
+# .elasticbeanstalk 없는(=eb init 안 된) 클론 레포
+uq logs <eb_init_안된_레포>             # exit 1, eb init 안내
 
 # 계획만 출력 (실제 스트리밍 없이) — 핵심 자동 검증 경로
-uq logs forceteller-api --env beta --dry-run
-#   → 해석된 환경(app-beta-kr), 인스턴스 목록(#1..#N), 각 eb ssh 명령 출력, 종료(exit 0)
-uq logs forceteller-api --env prod --instance 1 --dry-run   # 인스턴스 1개로 한정
-uq logs forceteller-api --env nope --dry-run                # exit 1, 알 수 없는 env
+uq logs forceteller-api beta kr --dry-run
+#   → 발견된 환경에서 beta+kr 필터 → 단일(api-beta-kr-j21), 인스턴스(#1..#N), eb ssh 명령 출력, exit 0
+uq logs forceteller-api beta kr --instance 1 --dry-run   # 인스턴스 1개로 한정
+uq logs forceteller-api zzz --dry-run                    # exit 1, 필터에 맞는 환경 없음
 
 # 플래그 충돌
-uq logs forceteller-api --split --no-follow --dry-run       # exit 2 (상호 배타)
+uq logs forceteller-api beta kr --split --no-follow --dry-run   # exit 2 (상호 배타)
 
 # split 감지 (현재 세션 cmux)
-uq logs forceteller-api --env beta --split --dry-run        # 감지 결과 + 패널별 명령 표시
+uq logs forceteller-api beta kr --split --dry-run        # 감지 결과 + 패널별 명령 표시
 
 # 분할 불가 환경 → merged fallback 안내
 env -u TMUX -u CMUX_PANEL_ID -u CMUX_SOCKET_PATH TERM_PROGRAM=Apple_Terminal \
-  uq logs forceteller-api --env beta --split --dry-run
+  uq logs forceteller-api beta kr --split --dry-run
 ```
 
 > 주의: 실제 follow 스트리밍은 EB·SSH·클론된 레포가 필요해 자동 검증에서 제외한다. 자동 검증은 `--dry-run` 과 단위 테스트로만 한다.
@@ -199,4 +209,3 @@ env -u TMUX -u CMUX_PANEL_ID -u CMUX_SOCKET_PATH TERM_PROGRAM=Apple_Terminal \
 - **로그 경로 per-proc/멀티 파일** — 한 환경당 단일 `path`. 여러 파일 동시 tail 은 범위 밖.
 - **분할 패널 생명주기 관리** — 패널 일괄 종료/정리는 run 과 동일하게 범위 밖(사용자가 직접 닫음).
 - **`.elasticbeanstalk/config.yml` 자동 생성** — eb init 은 사용자/레포 책임. uq 는 존재를 전제하고 없으면 안내만.
-```
