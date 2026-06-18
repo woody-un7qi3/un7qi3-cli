@@ -16,8 +16,8 @@ func TestRenderLegend(t *testing.T) {
 }
 
 func TestPrefixLine(t *testing.T) {
-	got := PrefixLine(3, "hello")
-	if !strings.Contains(got, "#3") || !strings.Contains(got, "hello") {
+	got := PrefixLine(3, "i-0abc123", "hello")
+	if !strings.Contains(got, "#3") || !strings.Contains(got, "i-0abc123") || !strings.Contains(got, "hello") {
 		t.Errorf("prefix 결과: %q", got)
 	}
 }

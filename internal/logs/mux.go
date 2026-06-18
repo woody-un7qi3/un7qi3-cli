@@ -22,9 +22,17 @@ func RenderLegend(insts []Instance) string {
 	return b.String()
 }
 
-// PrefixLine 은 로그 라인에 색상 [#k] prefix 를 붙인다.
-func PrefixLine(num int, line string) string {
-	return colorNum(num, fmt.Sprintf("[#%d]", num)) + " " + line
+// PrefixLine 은 로그 라인에 색상 [#k <인스턴스 id>] prefix 를 붙인다.
+func PrefixLine(num int, id, line string) string {
+	return colorNum(num, fmt.Sprintf("[#%d %s]", num, id)) + " " + line
+}
+
+// highlightLevel 은 ERROR 로그 라인 본문을 빨강으로 강조한다. 그 외는 원본 유지.
+func highlightLevel(line string) string {
+	if strings.Contains(line, "ERROR") {
+		return output.Red(line)
+	}
+	return line
 }
 
 // GrepMatch 은 re 가 nil 이면 항상 true, 아니면 line 매칭 여부.
@@ -36,9 +44,10 @@ func GrepMatch(re *regexp.Regexp, line string) bool {
 }
 
 // colorNum 은 인스턴스 번호별로 색을 돌려 라벨에 입힌다.
+// 빨강은 ERROR 강조 전용이라 인스턴스 구분 팔레트에서 제외한다.
 func colorNum(num int, s string) string {
 	palette := []func(string) string{
-		output.Cyan, output.Green, output.Yellow, output.Red, output.Blue, output.Dim,
+		output.Cyan, output.Green, output.Yellow, output.Blue,
 	}
 	return palette[(num-1)%len(palette)](s)
 }
@@ -72,7 +81,7 @@ func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env st
 			}
 			if err != nil {
 				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, output.Red("접속 실패: ")+err.Error()))
+				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, output.Red("접속 실패: ")+err.Error()))
 				mu.Unlock()
 				return
 			}
@@ -84,12 +93,12 @@ func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env st
 					continue
 				}
 				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, line))
+				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, highlightLevel(line)))
 				mu.Unlock()
 			}
 			if err := cmd.Wait(); err != nil {
 				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, output.Dim("스트림 종료: "+err.Error())))
+				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, output.Dim("스트림 종료: "+err.Error())))
 				mu.Unlock()
 			}
 		}(in)
