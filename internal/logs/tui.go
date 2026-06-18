@@ -170,12 +170,23 @@ func (m model) View() string {
 		footer = "/필터: " + m.input.View()
 	} else {
 		hints := output.Dim("space=일시정지  1-9=인스턴스  /=필터  g/G=처음/끝  q=종료")
-		if m.filter != "" {
-			// 적용 중인 필터를 상시 표시 — 인스턴스 솔로와 함께 걸려있음을 알 수 있게.
-			footer = output.Cyan("필터: "+m.filter) + "  " + hints
-		} else {
-			footer = hints
+		var parts []string
+		// 적용 중인 인스턴스 솔로를 그 인스턴스 색으로 상시 표시.
+		if m.solo != 0 {
+			label := fmt.Sprintf("#%d", m.solo)
+			for _, in := range m.insts {
+				if in.Num == m.solo {
+					label = fmt.Sprintf("#%d %s", in.Num, shortID(in.ID))
+					break
+				}
+			}
+			parts = append(parts, colorNum(m.solo, "인스턴스: "+label))
 		}
+		if m.filter != "" {
+			parts = append(parts, output.Cyan("필터: "+m.filter))
+		}
+		parts = append(parts, hints)
+		footer = strings.Join(parts, "  ")
 	}
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
