@@ -21,8 +21,8 @@ func RenderLegend(insts []Instance) string {
 
 // PrefixLine 은 로그 라인에 색상 [#k <단축 id>] prefix 를 붙인다(id 는 앞 5글자).
 // 전체 id 는 시작 시 범례(RenderLegend)에서 확인한다.
-func PrefixLine(num int, id, line string) string {
-	return colorNum(num, fmt.Sprintf("[#%d %s]", num, shortID(id))) + " " + line
+func PrefixLine(num int, line string) string {
+	return colorNum(num, fmt.Sprintf("[#%d]", num)) + " " + line
 }
 
 // shortID 는 공통 "i-" 접두사를 떼고 그 뒤 5글자만 반환한다(더 짧으면 그대로).
@@ -63,11 +63,11 @@ func colorNum(num int, s string) string {
 func renderLine(ln LogLine) string {
 	switch ln.Kind {
 	case KindConnErr:
-		return PrefixLine(ln.Num, ln.ID, output.Red("접속 실패: ")+ln.Text)
+		return PrefixLine(ln.Num, output.Red("접속 실패: ")+ln.Text)
 	case KindEnd:
-		return PrefixLine(ln.Num, ln.ID, output.Dim("스트림 종료: "+ln.Text))
+		return PrefixLine(ln.Num, output.Dim("스트림 종료: "+ln.Text))
 	default:
-		return PrefixLine(ln.Num, ln.ID, highlightLevel(ln.Text))
+		return PrefixLine(ln.Num, highlightLevel(ln.Text))
 	}
 }
 

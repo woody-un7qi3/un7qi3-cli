@@ -41,8 +41,8 @@ type model struct {
 
 func newModel(insts []Instance, initialFilter, app, env string) model {
 	ti := textinput.New()
-	ti.Prompt = "" // 우리가 "/필터: " 라벨을 직접 붙이므로 기본 "> " 프롬프트 제거
-	ti.Placeholder = "필터 (대소문자 무시 부분문자열)"
+	ti.Prompt = ""      // 우리가 "/필터: " 라벨을 직접 붙이므로 기본 "> " 프롬프트 제거
+	ti.Placeholder = "" // 빈 입력 시 placeholder 가 "/필터: " 뒤에 노출되는 혼동 방지
 	ti.SetValue(initialFilter)
 	return model{
 		insts:  insts,
@@ -154,10 +154,11 @@ func (m model) View() string {
 		if m.solo != 0 && m.solo != in.Num {
 			mark = "✗"
 		}
-		fmt.Fprintf(&toggles, "[#%d %s]%s ", in.Num, shortID(in.ID), mark)
+		// 각 인스턴스 토글을 그 인스턴스 색으로 — 상단 색과 로그 줄 [#k] 색이 일치.
+		fmt.Fprint(&toggles, colorNum(in.Num, fmt.Sprintf("[#%d %s]", in.Num, shortID(in.ID)))+mark+" ")
 	}
-	header := headerStyle.Render(
-		fmt.Sprintf("uq logs  %s · %s  [%s]  %s", m.app, m.env, status, toggles.String()))
+	header := headerStyle.Render(fmt.Sprintf("uq logs  %s · %s  [%s]  ", m.app, m.env, status)) +
+		toggles.String()
 
 	var footer string
 	if m.editing {

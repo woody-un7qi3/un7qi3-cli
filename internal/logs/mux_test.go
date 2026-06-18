@@ -16,12 +16,9 @@ func TestRenderLegend(t *testing.T) {
 }
 
 func TestPrefixLine(t *testing.T) {
-	got := PrefixLine(3, "i-0abc123", "hello")
-	if !strings.Contains(got, "#3") || !strings.Contains(got, "0abc1") || !strings.Contains(got, "hello") {
+	got := PrefixLine(3, "hello")
+	if !strings.Contains(got, "#3") || !strings.Contains(got, "hello") {
 		t.Errorf("prefix 결과: %q", got)
-	}
-	if strings.Contains(got, "i-") {
-		t.Errorf("공통 i- 접두사는 제외돼야 함: %q", got)
 	}
 }
 
@@ -37,7 +34,7 @@ func TestGrepMatch(t *testing.T) {
 
 func TestRenderLine(t *testing.T) {
 	got := renderLine(LogLine{Num: 1, ID: "i-0abc123", Text: "hello", Kind: KindLog})
-	if !strings.Contains(got, "0abc1") || !strings.Contains(got, "hello") {
+	if !strings.Contains(got, "#1") || !strings.Contains(got, "hello") {
 		t.Errorf("KindLog 렌더 틀림: %q", got)
 	}
 	ce := renderLine(LogLine{Num: 2, ID: "i-x", Text: "boom", Kind: KindConnErr})
