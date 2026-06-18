@@ -63,17 +63,19 @@ func newCloneCmd() *cobra.Command {
 				return fmt.Errorf("--dir 는 레포명 하나를 클론할 때만 사용할 수 있습니다")
 			}
 
+			// gh 인증 사전 확인 — 안 되어 있으면 즉시 exit 4.
+			// 워크스페이스 설정 프롬프트보다 먼저 막아 미인증 시 불필요한
+			// 디렉토리 설정을 거치지 않게 한다.
+			if s := authpkg.GhStatus(); !s.OK {
+				return &authpkg.RequiredError{
+					Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
+				}
+			}
+
 			// 최초 실행이면 워크스페이스 위치를 먼저 정한다 (--dir 오버라이드 시 생략).
 			if dir == "" {
 				if err := initcmd.EnsureReposDir(cmd.OutOrStdout()); err != nil {
 					return err
-				}
-			}
-
-			// gh 인증 사전 확인 — 안 되어 있으면 즉시 exit 4.
-			if s := authpkg.GhStatus(); !s.OK {
-				return &authpkg.RequiredError{
-					Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 				}
 			}
 
