@@ -2,6 +2,7 @@
 package logs
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +27,7 @@ var (
 	split       bool
 	dryRun      bool
 	linesN      int
+	plain       bool
 )
 
 // NewCmd returns the `uq logs` command.
@@ -58,6 +60,7 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "follow 없이 최근 N줄만 출력하고 종료")
 	cmd.Flags().BoolVar(&split, "split", false, "인스턴스별 패널 분리 (cmux/iterm2)")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "해석된 app/region/환경/명령만 출력")
+	cmd.Flags().BoolVar(&plain, "plain", false, "TTY 라도 평문 스트리밍 강제 (TUI 끄기)")
 	cmd.MarkFlagsMutuallyExclusive("split", "no-follow")
 	return cmd
 }
@@ -155,7 +158,18 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 		}
 		fmt.Fprintln(w, output.Yellow("⚠"), "현재 터미널은 분할 미지원 — merged 로 진행")
 	}
+	if isStdoutTTY() && !noFollow && !plain {
+		tctx, cancel := context.WithCancel(cmd.Context())
+		defer cancel()
+		ch := eblogs.StreamLines(tctx, src, tgt, env, insts, true, lines, grep)
+		return eblogs.RunTUI(tctx, ch, insts, grep, tgt.App, env)
+	}
 	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !noFollow, lines, grep)
+}
+
+// isStdoutTTY 는 표준출력이 터미널인지.
+func isStdoutTTY() bool {
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // countryPreferredOrder 는 국가 선택 시 고정 노출 순서. 여기 없는 코드는
