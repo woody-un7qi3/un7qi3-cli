@@ -28,8 +28,9 @@ func PrefixLine(num int, id, line string) string {
 	return colorNum(num, fmt.Sprintf("[#%d %s]", num, shortID(id))) + " " + line
 }
 
-// shortID 는 인스턴스 id 의 앞 5글자만 반환한다(더 짧으면 그대로).
+// shortID 는 공통 "i-" 접두사를 떼고 그 뒤 5글자만 반환한다(더 짧으면 그대로).
 func shortID(id string) string {
+	id = strings.TrimPrefix(id, "i-")
 	if len(id) > 5 {
 		return id[:5]
 	}

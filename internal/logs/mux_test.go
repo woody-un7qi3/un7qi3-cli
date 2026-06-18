@@ -17,11 +17,11 @@ func TestRenderLegend(t *testing.T) {
 
 func TestPrefixLine(t *testing.T) {
 	got := PrefixLine(3, "i-0abc123", "hello")
-	if !strings.Contains(got, "#3") || !strings.Contains(got, "i-0ab") || !strings.Contains(got, "hello") {
+	if !strings.Contains(got, "#3") || !strings.Contains(got, "0abc1") || !strings.Contains(got, "hello") {
 		t.Errorf("prefix 결과: %q", got)
 	}
-	if strings.Contains(got, "i-0abc123") {
-		t.Errorf("id 는 앞 5글자로 단축돼야 함: %q", got)
+	if strings.Contains(got, "i-") {
+		t.Errorf("공통 i- 접두사는 제외돼야 함: %q", got)
 	}
 }
 
