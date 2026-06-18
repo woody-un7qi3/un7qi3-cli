@@ -5,3 +5,7 @@ bin/
 
 # JetBrains IDE
 .idea/
+
+# 로컬 전용 (원격에 올리지 않음)
+docs/
+.claude/
