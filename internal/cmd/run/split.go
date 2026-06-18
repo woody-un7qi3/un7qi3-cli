@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/huh"
 
@@ -217,11 +216,11 @@ func (p panel) shellLine(useExec bool) string {
 	var b strings.Builder
 	// 패널 제목 + 컬러 배너로 어느 proc(back/front)인지 한눈에 구분. 이름은
 	// printf 인자로 넘겨 따옴표 안전성을 지킨다.
-	b.WriteString("printf '\\033]0;%s\\007' " + shellQuote(p.name))
-	b.WriteString(" && printf '\\033[1;36m▶ [%s]\\033[0m\\n\\n' " + shellQuote(p.name))
-	b.WriteString(" && cd " + shellQuote(p.cwd))
+	b.WriteString("printf '\\033]0;%s\\007' " + run.ShellQuote(p.name))
+	b.WriteString(" && printf '\\033[1;36m▶ [%s]\\033[0m\\n\\n' " + run.ShellQuote(p.name))
+	b.WriteString(" && cd " + run.ShellQuote(p.cwd))
 	if p.pathAdded != "" {
-		b.WriteString(" && export PATH=" + shellQuote(p.pathAdded) + ":$PATH")
+		b.WriteString(" && export PATH=" + run.ShellQuote(p.pathAdded) + ":$PATH")
 	}
 	keys := make([]string, 0, len(p.env))
 	for k := range p.env {
@@ -229,7 +228,7 @@ func (p panel) shellLine(useExec bool) string {
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
-		b.WriteString(" && export " + k + "=" + shellQuote(p.env[k]))
+		b.WriteString(" && export " + k + "=" + run.ShellQuote(p.env[k]))
 	}
 	b.WriteString(" && ")
 	if useExec {
@@ -237,7 +236,7 @@ func (p panel) shellLine(useExec bool) string {
 	}
 	parts := make([]string, len(p.cmd))
 	for i, a := range p.cmd {
-		parts[i] = shellQuote(a)
+		parts[i] = run.ShellQuote(a)
 	}
 	b.WriteString(strings.Join(parts, " "))
 	return b.String()
@@ -263,162 +262,26 @@ func buildPanels(repoDir string, procs []repocfg.Proc, profileEnv map[string]str
 	return panels
 }
 
+// toRunPanel converts a local panel to a run.Panel for use with run.OpenPanel.
+// useExec controls whether the shell line ends with exec (see shellLine).
+func (p panel) toRunPanel(useExec bool) run.Panel {
+	return run.Panel{Label: p.name, Command: p.shellLine(useExec)}
+}
+
+// toRunDir maps the local splitDir to the shared run.SplitDir enum.
+func toRunDir(d splitDir) run.SplitDir {
+	if d == splitRow {
+		return run.SplitRow
+	}
+	return run.SplitCol
+}
+
 // openPanel spawns one panel via the detected multiplexer.
-//
-// Each multiplexer inverts horizontal/vertical differently, so dir is mapped
-// to the concrete flag/verb per tool rather than passed through literally:
-//
-//	dir   tmux            cmux              iTerm2
-//	col   split-window -h --direction right split vertically
-//	row   split-window -v --direction down  split horizontally
 func openPanel(mux run.Multiplexer, pn panel, dir splitDir) error {
-	switch mux {
-	case run.MuxTmux:
-		// -d: create the pane without switching focus to it. sh -c is replaced
-		// by the command (exec), so tmux's default close-on-exit is fine.
-		flag := "-v"
-		if dir == splitCol {
-			flag = "-h"
-		}
-		_, err := uqexec.Run("tmux", "split-window", "-d", flag, "sh", "-c", pn.shellLine(true))
-		return err
-	case run.MuxCmux:
-		return openCmuxPanel(pn, dir)
-	case run.MuxITerm2:
-		return openITerm2Panel(pn, dir)
-	case run.MuxGhostty:
-		return openGhosttyPanel(pn)
-	case run.MuxAppleTerminal:
-		return openAppleTerminalPanel(pn)
-	default:
-		return fmt.Errorf("분할 미지원: %s", mux)
-	}
-}
-
-// openCmuxPanel creates a new cmux terminal pane and types the command into the
-// pane's interactive shell via `cmux send`.
-//
-// We deliberately do NOT use `respawn-pane --command`: that REPLACES the pane's
-// shell with the command, so the pane closes the instant the command exits
-// (including on a fast error). Typing into the live shell instead keeps the
-// pane open — the dev server runs in it, and if it errors you still see why.
-//
-// The bundled CLI path is exported by cmux as CMUX_BUNDLED_CLI_PATH.
-func openCmuxPanel(pn panel, dir splitDir) error {
-	cli := os.Getenv("CMUX_BUNDLED_CLI_PATH")
-	if cli == "" {
-		return fmt.Errorf("CMUX_BUNDLED_CLI_PATH 가 비어 있습니다")
-	}
-	direction := "down"
-	if dir == splitCol {
-		direction = "right"
-	}
-	out, err := uqexec.Run(cli, "new-pane", "--type", "terminal", "--direction", direction)
-	if err != nil {
-		return err
-	}
-	surface := parseCmuxSurface(string(out))
-	if surface == "" {
-		return fmt.Errorf("new-pane 출력에서 surface 를 찾지 못했습니다: %q", strings.TrimSpace(string(out)))
-	}
-	// Give the freshly-spawned shell a moment to start reading its pty before
-	// we type into it, so the line isn't swallowed by shell init.
-	time.Sleep(500 * time.Millisecond)
-	// \n at the end presses Enter. No exec: the interactive shell stays alive.
-	_, err = uqexec.Run(cli, "send", "--surface", surface, pn.shellLine(false)+"\n")
-	return err
-}
-
-// parseCmuxSurface extracts the "surface:N" token from cmux new-pane output,
-// e.g. "OK surface:14 pane:16 workspace:4" → "surface:14". respawn-pane wants
-// just that ref, not the whole status line.
-func parseCmuxSurface(out string) string {
-	for _, f := range strings.Fields(out) {
-		if strings.HasPrefix(f, "surface:") {
-			return f
-		}
-	}
-	return ""
-}
-
-// openITerm2Panel splits the current iTerm2 session and types the command into
-// the new session via `write text`.
-//
-// Like the cmux path, we split into a normal shell and write the command in,
-// rather than passing it as the pane's launch command. That avoids a nested
-// quoting nightmare (the shell line already contains single quotes and \033
-// escapes) and keeps the pane open if the command errors. useExec=false so the
-// interactive shell survives.
-func openITerm2Panel(pn panel, dir splitDir) error {
-	line := pn.shellLine(false)
-	// iTerm inverts the words: "vertically" = side-by-side (col),
-	// "horizontally" = stacked (row).
-	verb := "split horizontally"
-	if dir == splitCol {
-		verb = "split vertically"
-	}
-	args := []string{
-		"-e", `tell application "iTerm2"`,
-		"-e", `set s to current session of current window`,
-		"-e", `tell s to set ns to (` + verb + ` with default profile)`,
-		"-e", `tell ns to write text ` + appleScriptQuote(line),
-		"-e", `end tell`,
-	}
-	_, err := uqexec.Run("osascript", args...)
-	return err
-}
-
-// openGhosttyPanel opens the command in a NEW Ghostty window.
-//
-// Ghostty has no scripting IPC and `+new-window` is unsupported on macOS, so we
-// launch through `open -na Ghostty.app --args -e <shell>`. Unlike a System
-// Events approach this needs no Accessibility permission (we synthesize no
-// keystrokes). After the command exits we exec an interactive shell so the
-// window stays open and any error remains visible.
-func openGhosttyPanel(pn panel) error {
-	script := pn.shellLine(false) + "; exec ${SHELL:-/bin/zsh} -i -l"
-	out, err := uqexec.RunCombined("open", "-na", "Ghostty.app", "--args", "-e", "/bin/sh", "-c", script)
-	if err != nil {
-		return fmt.Errorf("Ghostty 새 창 열기 실패: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-// openAppleTerminalPanel opens the command in a new Terminal.app window.
-//
-// Terminal.app has no split panes, so `do script` (which spawns a new window
-// and runs text in its shell) is the closest equivalent. This needs only
-// Automation consent for controlling Terminal — no Accessibility — because we
-// never synthesize keystrokes. The split direction is not applicable to windows.
-func openAppleTerminalPanel(pn panel) error {
-	args := []string{
-		"-e", `tell application "Terminal"`,
-		"-e", "activate",
-		"-e", "do script " + appleScriptQuote(pn.shellLine(false)),
-		"-e", "end tell",
-	}
-	out, err := uqexec.RunCombined("osascript", args...)
-	if err != nil {
-		s := strings.TrimSpace(string(out))
-		if strings.Contains(s, "-1743") || strings.Contains(s, "Not authorized") || strings.Contains(s, "허용되지") {
-			return fmt.Errorf("Terminal 제어(자동화) 권한이 필요합니다 — 시스템 설정 ▸ 개인정보 보호 및 보안 ▸ 자동화 에서 Terminal 을 허용한 뒤 다시 시도하세요")
-		}
-		return fmt.Errorf("%w: %s", err, s)
-	}
-	return nil
-}
-
-// shellQuote wraps s in single quotes, escaping any embedded single quotes,
-// making it safe as a single sh word.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// appleScriptQuote wraps s in double quotes for an AppleScript string literal.
-// Backslashes must be escaped before quotes — the shell line carries \033
-// escapes that AppleScript would otherwise mangle.
-func appleScriptQuote(s string) string {
-	s = strings.ReplaceAll(s, `\`, `\\`)
-	s = strings.ReplaceAll(s, `"`, `\"`)
-	return `"` + s + `"`
+	// cmux/iTerm2: type into an existing interactive shell (useExec=false) so
+	// the pane stays open when the command exits or errors.
+	// tmux/Ghostty/Terminal: the shared opener uses the Command field directly.
+	useExec := mux == run.MuxTmux
+	rp := pn.toRunPanel(useExec)
+	return run.OpenPanel(mux, rp, toRunDir(dir))
 }
