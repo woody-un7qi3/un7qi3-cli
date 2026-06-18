@@ -25,13 +25,18 @@ func PrefixLine(num int, line string) string {
 	return colorNum(num, fmt.Sprintf("[#%d]", num)) + " " + line
 }
 
-// shortID 는 공통 "i-" 접두사를 떼고 그 뒤 5글자만 반환한다(더 짧으면 그대로).
+// shortID 는 "i-" 접두사를 유지하고 그 뒤 5글자만 남긴다(예: i-09e13).
 func shortID(id string) string {
-	id = strings.TrimPrefix(id, "i-")
-	if len(id) > 5 {
-		return id[:5]
+	prefix := ""
+	rest := id
+	if strings.HasPrefix(id, "i-") {
+		prefix = "i-"
+		rest = id[len("i-"):]
 	}
-	return id
+	if len(rest) > 5 {
+		rest = rest[:5]
+	}
+	return prefix + rest
 }
 
 // highlightLevel 은 ERROR 로그 라인 본문을 빨강으로 강조한다. 그 외는 원본 유지.
