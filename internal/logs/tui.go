@@ -20,6 +20,8 @@ const (
 	footerH = 1
 )
 
+var headerStyle = lipgloss.NewStyle().Bold(true)
+
 type logMsg LogLine
 
 type model struct {
@@ -142,7 +144,7 @@ func (m model) View() string {
 		}
 		fmt.Fprintf(&toggles, "[#%d %s]%s ", in.Num, shortID(in.ID), mark)
 	}
-	header := lipgloss.NewStyle().Bold(true).Render(
+	header := headerStyle.Render(
 		fmt.Sprintf("uq logs  %s  %s", status, toggles.String()))
 
 	var footer string
@@ -156,10 +158,20 @@ func (m model) View() string {
 
 // RunTUI 는 채널의 LogLine 을 bubbletea 프로그램에 주입하며 TUI 를 실행한다.
 func RunTUI(ctx context.Context, ch <-chan LogLine, insts []Instance, initialFilter string) error {
-	p := tea.NewProgram(newModel(insts, initialFilter), tea.WithAltScreen(), tea.WithContext(ctx))
+	rctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	p := tea.NewProgram(newModel(insts, initialFilter), tea.WithAltScreen(), tea.WithContext(rctx))
 	go func() {
-		for ln := range ch {
-			p.Send(logMsg(ln))
+		for {
+			select {
+			case <-rctx.Done():
+				return
+			case ln, ok := <-ch:
+				if !ok {
+					return
+				}
+				p.Send(logMsg(ln))
+			}
 		}
 	}()
 	_, err := p.Run()
