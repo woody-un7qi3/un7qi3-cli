@@ -33,12 +33,26 @@ runs:
     profiles:
       local:
         node: "16"
+        # 국가는 프로파일과 직교하는 축 — proc 구조를 복제하지 않고 {script} 토큰
+        # 치환으로 표현한다. back/front 가 같은 스크립트 이름을 공유하는 전제.
+        countries:
+          default: kr
+          options:
+            - code: kr
+              script: local
+              requires: [back-end/.env]
+            - code: en
+              script: local_en
+              requires: [back-end/.env.en]
+            - code: jp
+              script: local_jp
+              requires: [back-end/.env.jp]
         procs:
           - name: back
             cwd: back-end
-            cmd: ["npm", "run", "local"]
+            cmd: ["npm", "run", "{script}"]   # {script} ← 선택 국가로 치환
             url: "http://localhost:3000"
           - name: front
             cwd: front-end/workspace
-            cmd: ["npm", "run", "local"]
+            cmd: ["npm", "run", "{script}"]
             url: "http://localhost:4200"

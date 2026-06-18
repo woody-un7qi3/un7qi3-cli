@@ -7,6 +7,7 @@ package repocfg
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 	"sync"
 
 	"gopkg.in/yaml.v3"
@@ -46,6 +47,76 @@ type Profile struct {
 	// URL is the address the dev server listens on (single-cmd profiles).
 	// Printed in the header so users know where to navigate once compile is done.
 	URL string `yaml:"url,omitempty"`
+	// Countries, when set, declares an axis orthogonal to the profile: the same
+	// cmd/proc structure run against a different locale by swapping the npm
+	// script name. Each argv's "{script}" token is replaced by the chosen
+	// country's Script. Nil means the profile has no country axis (default).
+	Countries *Countries `yaml:"countries,omitempty"`
+}
+
+// Countries declares the per-country variants of a profile.
+//
+// Default is the country code used when no --country flag is given and the
+// session is non-interactive. Options lists the selectable countries in
+// declaration order (the order shown in the TUI).
+type Countries struct {
+	Default string    `yaml:"default"`
+	Options []Country `yaml:"options"`
+}
+
+// Country is one locale variant. Script is the npm script name substituted for
+// the "{script}" token. Requires lists files (relative to the repo root) that
+// must exist before launch — the underlying app crashes on a missing locale
+// .env, so uq pre-flights them.
+type Country struct {
+	Code     string   `yaml:"code"`
+	Script   string   `yaml:"script"`
+	Requires []string `yaml:"requires,omitempty"`
+}
+
+// Find returns the option with the given code.
+func (c *Countries) Find(code string) (Country, bool) {
+	for _, o := range c.Options {
+		if o.Code == code {
+			return o, true
+		}
+	}
+	return Country{}, false
+}
+
+// Codes returns the option codes in declaration order, joined for messages.
+func (c *Countries) Codes() string {
+	out := make([]string, 0, len(c.Options))
+	for _, o := range c.Options {
+		out = append(out, o.Code)
+	}
+	return strings.Join(out, ", ")
+}
+
+// SubstituteScript returns a copy of the profile with every "{script}" token in
+// Cmd and each Proc.Cmd replaced by script. The original is left untouched so
+// callers can substitute different scripts off one parsed profile.
+func (p Profile) SubstituteScript(script string) Profile {
+	sub := func(argv []string) []string {
+		if argv == nil {
+			return nil
+		}
+		out := make([]string, len(argv))
+		for i, a := range argv {
+			out[i] = strings.ReplaceAll(a, "{script}", script)
+		}
+		return out
+	}
+	p.Cmd = sub(p.Cmd)
+	if p.Procs != nil {
+		procs := make([]Proc, len(p.Procs))
+		for i, pr := range p.Procs {
+			pr.Cmd = sub(pr.Cmd)
+			procs[i] = pr
+		}
+		p.Procs = procs
+	}
+	return p
 }
 
 // Proc is one of several concurrent processes in a multi-proc profile.

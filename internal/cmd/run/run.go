@@ -11,10 +11,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	osexec "os/exec"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -33,9 +35,12 @@ import (
 // NewCmd returns `uq run`.
 func NewCmd() *cobra.Command {
 	var (
-		dryRun bool
-		bgFlag bool
-		fgFlag bool
+		dryRun       bool
+		bgFlag       bool
+		fgFlag       bool
+		splitFlag    bool
+		splitDirFlag string
+		countryFlag  string
 	)
 	long := strings.Join([]string{
 		output.Desc("레포의 로컬 개발 서버를 통일된 환경에서 실행합니다."),
@@ -92,19 +97,60 @@ func NewCmd() *cobra.Command {
 			env, pathAdded := mergeEnv(profile.Env, nodeRes)
 			branch := currentBranch(dir)
 
+			isTTY := term.IsTerminal(int(os.Stdin.Fd()))
+			label := repoName + ":" + resolvedName
+			country, err := resolveCountry(profile, dir, countryFlag, label, isTTY, c.OutOrStderr())
+			if err != nil {
+				// 국가 결정/사전 검증 실패는 사용법 에러(2)가 아닌 런타임 에러(1).
+				// doctor/repo 와 같이 RunE 안에서 직접 종료한다.
+				fmt.Fprintln(c.OutOrStderr(), output.Red("✗"), err)
+				os.Exit(1)
+			}
+			if country != nil {
+				profile = profile.SubstituteScript(country.Script)
+			}
+
+			// --split-dir 값은 분할을 쓸 때만 의미 있지만, 잘못된 값은 미리 막는다.
+			if splitFlag {
+				if _, _, err := parseSplitDir(splitDirFlag); err != nil {
+					return err
+				}
+			}
+
+			// 실행 전 포트 충돌 점검 — 선언된 localhost 포트가 이미 LISTEN 중이면
+			// 띄우기 전에 멈춘다. dry-run 은 상태만 보여주고 멈추지 않는다.
+			ports := declaredPorts(profile, repoName)
+			portStatuses := run.InspectPorts(portNumbers(ports))
+
 			if dryRun {
-				printDryRun(c.OutOrStdout(), repoName, resolvedName, dir, branch, profile, pathAdded, nodeRes)
+				printDryRun(c.OutOrStdout(), repoName, resolvedName, dir, branch, profile, pathAdded, nodeRes, country)
+				printPortStatus(c.OutOrStdout(), ports, portStatuses)
+				if splitFlag && len(profile.Procs) > 1 {
+					printSplitPlan(c.OutOrStdout(), dir, profile, profile.Env, pathAdded, splitDirFlag)
+				}
 				return nil
 			}
 
-			mode, err := chooseMode(fgFlag, bgFlag)
+			if msg, conflict := portConflictMsg(ports, portStatuses); conflict {
+				fmt.Fprint(c.OutOrStderr(), msg)
+				os.Exit(1)
+			}
+
+			mode, err := chooseMode(fgFlag, bgFlag, splitFlag, isTTY, procNames(profile.Procs))
 			if err != nil {
 				return err
 			}
 
-			printHeader(c.OutOrStderr(), repoName, resolvedName, branch, nodeRes, profile)
-			if mode == modeBackground {
+			printHeader(c.OutOrStderr(), repoName, resolvedName, branch, nodeRes, profile, country)
+			switch mode {
+			case modeBackground:
 				return runBackground(c.OutOrStderr(), repoName, dir, profile, env)
+			case modeSplit:
+				if len(profile.Procs) > 1 {
+					// 방향 결정/프롬프트는 runSplit 안에서 터미널 종류에 맞춰 처리.
+					return runSplit(c.OutOrStderr(), repoName, dir, profile, profile.Env, pathAdded, env, splitDirFlag, isTTY)
+				}
+				// 단일 프로세스는 분할 대상이 없다 — 일반 포그라운드로.
 			}
 			if len(profile.Procs) > 0 {
 				return execMulti(dir, profile.Procs, env)
@@ -115,7 +161,11 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "실제 실행 없이 풀어진 cmd/env/PATH 만 출력")
 	cmd.Flags().BoolVar(&bgFlag, "bg", false, "백그라운드 실행 (로그 파일로 분리, 즉시 반환)")
 	cmd.Flags().BoolVar(&fgFlag, "fg", false, "포그라운드 실행 (현재 터미널에 로그 출력)")
+	cmd.Flags().BoolVar(&splitFlag, "split", false, "포그라운드 패널 분할 (proc별 별도 패널, 멀티프로세스 전용)")
+	cmd.Flags().StringVar(&splitDirFlag, "split-dir", "", "분할 방향: col(좌우, 기본) | row(상하) — 생략 시 TTY 에서 물음")
+	cmd.Flags().StringVar(&countryFlag, "country", "", "국가 선택 (예: kr/en/jp — countries 가 선언된 프로파일에서만)")
 	cmd.MarkFlagsMutuallyExclusive("bg", "fg")
+	cmd.MarkFlagsMutuallyExclusive("bg", "split")
 	cmd.AddCommand(newProfilesCmd())
 	return cmd
 }
@@ -125,40 +175,205 @@ type runMode int
 const (
 	modeForeground runMode = iota
 	modeBackground
+	modeSplit
 )
 
-// chooseMode decides foreground vs. background.
+// chooseMode decides how to launch.
 //
-//   - --fg / --bg 명시:  그대로
-//   - 비TTY:             포그라운드 (스크립트/CI 안전)
-//   - TTY:               huh.NewSelect 로 물음
-func chooseMode(fg, bg bool) (runMode, error) {
-	if fg {
-		return modeForeground, nil
+//   - --split / --bg / --fg 명시:  그대로
+//   - 비TTY:                       포그라운드 merged (스크립트/CI 안전)
+//   - TTY, 멀티프로세스:           merged / split / background 3지선다
+//   - TTY, 단일프로세스:           foreground / background 2지선다
+//
+// procNames are the proc names of the profile; more than one enables the split
+// option (split only makes sense when there are multiple procs to spread
+// across panels) and is shown in the merged-log label so the user knows which
+// processes share the screen.
+func chooseMode(fg, bg, split, isTTY bool, procNames []string) (runMode, error) {
+	if split {
+		return modeSplit, nil
 	}
 	if bg {
 		return modeBackground, nil
 	}
-	if !term.IsTerminal(int(os.Stdin.Fd())) {
+	if fg {
 		return modeForeground, nil
 	}
+	if !isTTY {
+		return modeForeground, nil
+	}
+
+	// 모든 선택지를 "포그라운드/백그라운드 · 설명" 한 형식으로 통일한다.
+	// jargon(proc) 없이, Ctrl+C 안내는 메뉴 설명에서 한 번만.
 	var choice string
-	err := huh.NewSelect[string]().
-		Title("어떻게 실행할까요?").
-		Description("Ctrl+C 로 즉시 종료할 수 있는 포그라운드 / 로그 파일로 분리되는 백그라운드").
-		Options(
-			huh.NewOption("포그라운드 — 이 터미널에 로그 출력, Ctrl+C 로 종료", "fg"),
-			huh.NewOption("백그라운드 — 로그 파일로 분리, 즉시 복귀", "bg"),
-		).
-		Value(&choice).
-		Run()
-	if err != nil {
-		return 0, err
+	if len(procNames) > 1 {
+		mergedLabel := fmt.Sprintf("포그라운드 · 한 화면에 로그 합쳐 보기 (%s)", strings.Join(procNames, " + "))
+		// 분할 옵션은 이 터미널이 실제로 할 수 있는 방식(패널/새 창)으로 문구를
+		// 바꾸고, 분할 자체가 불가하면 메뉴에서 아예 뺀다.
+		opts := []huh.Option[string]{huh.NewOption(mergedLabel, "fg")}
+		if styleOf(run.DetectMultiplexer()) != styleNone {
+			opts = append(opts, huh.NewOption(splitMenuLabel(run.DetectMultiplexer()), "split"))
+		}
+		opts = append(opts, huh.NewOption("백그라운드 · 로그는 파일로 남기고 바로 복귀", "bg"))
+		if err := huh.NewSelect[string]().
+			Title("어떻게 실행할까요?").
+			Description("포그라운드는 Ctrl+C 로 종료합니다.").
+			Options(opts...).
+			Value(&choice).
+			Run(); err != nil {
+			return 0, err
+		}
+	} else {
+		err := huh.NewSelect[string]().
+			Title("어떻게 실행할까요?").
+			Description("포그라운드는 Ctrl+C 로 종료합니다.").
+			Options(
+				huh.NewOption("포그라운드 · 이 터미널에 로그 출력", "fg"),
+				huh.NewOption("백그라운드 · 로그는 파일로 남기고 바로 복귀", "bg"),
+			).
+			Value(&choice).
+			Run()
+		if err != nil {
+			return 0, err
+		}
 	}
-	if choice == "bg" {
+	switch choice {
+	case "bg":
 		return modeBackground, nil
+	case "split":
+		return modeSplit, nil
+	default:
+		return modeForeground, nil
 	}
-	return modeForeground, nil
+}
+
+// portCheck pairs a declared port with the proc (or repo) that owns it, for
+// labeling the pre-flight output.
+type portCheck struct {
+	port  int
+	label string
+}
+
+// declaredPorts collects the localhost ports a profile declares via its URLs
+// (the single-cmd URL, or each proc's URL). Non-localhost URLs are skipped —
+// uq can't meaningfully pre-flight a remote port.
+func declaredPorts(p repocfg.Profile, repo string) []portCheck {
+	var out []portCheck
+	add := func(rawURL, label string) {
+		if port, ok := localhostPort(rawURL); ok {
+			out = append(out, portCheck{port: port, label: label})
+		}
+	}
+	if len(p.Procs) > 0 {
+		for _, pr := range p.Procs {
+			add(pr.URL, pr.Name)
+		}
+	} else {
+		add(p.URL, repo)
+	}
+	return out
+}
+
+// localhostPort extracts the port from a localhost/127.0.0.1 URL.
+func localhostPort(raw string) (int, bool) {
+	if raw == "" {
+		return 0, false
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return 0, false
+	}
+	if h := u.Hostname(); h != "localhost" && h != "127.0.0.1" {
+		return 0, false
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		return 0, false
+	}
+	return port, true
+}
+
+func portNumbers(checks []portCheck) []int {
+	nums := make([]int, len(checks))
+	for i, c := range checks {
+		nums[i] = c.port
+	}
+	return nums
+}
+
+// printPortStatus renders the dry-run port section: each declared port with
+// whether it's free or already taken (and by what).
+func printPortStatus(w io.Writer, checks []portCheck, statuses []run.PortStatus) {
+	if len(checks) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "  포트 점검:\n")
+	for i, st := range statuses {
+		state := output.Green("비어 있음")
+		if st.InUse {
+			state = output.Red("사용 중 — " + portOwnerDesc(st))
+		}
+		fmt.Fprintf(w, "    %s %d  %s\n", output.Cyan("["+checks[i].label+"]"), checks[i].port, state)
+	}
+}
+
+// portOwnerDesc describes who holds a port: the full launched command line when
+// ps could read it, else the short command name, with the pid.
+func portOwnerDesc(st run.PortStatus) string {
+	who := st.Path
+	if who == "" {
+		who = st.Command
+	}
+	if who == "" {
+		return "점유 프로세스 미상"
+	}
+	var meta []string
+	if st.PID > 0 {
+		meta = append(meta, fmt.Sprintf("pid %d", st.PID))
+	}
+	if st.Cwd != "" {
+		meta = append(meta, "cwd: "+st.Cwd)
+	}
+	if len(meta) > 0 {
+		return who + " (" + strings.Join(meta, ", ") + ")"
+	}
+	return who
+}
+
+// portConflictMsg builds the abort message when any declared port is taken,
+// returning (message, true). When all ports are free it returns ("", false).
+func portConflictMsg(checks []portCheck, statuses []run.PortStatus) (string, bool) {
+	var b strings.Builder
+	var pids []string
+	any := false
+	for i, st := range statuses {
+		if !st.InUse {
+			continue
+		}
+		any = true
+		fmt.Fprintf(&b, "  %s %d 사용 중 — %s\n", output.Cyan("["+checks[i].label+"]"), checks[i].port, portOwnerDesc(st))
+		if st.PID > 0 {
+			pids = append(pids, strconv.Itoa(st.PID))
+		}
+	}
+	if !any {
+		return "", false
+	}
+	header := output.Red("✗") + " 포트 충돌 — 실행을 중단합니다\n"
+	hint := ""
+	if len(pids) > 0 {
+		hint = output.Dim("  비우려면: ") + output.Cyan("kill "+strings.Join(pids, " ")) + "\n"
+	}
+	return header + b.String() + hint, true
+}
+
+// procNames returns the proc names in declaration order.
+func procNames(procs []repocfg.Proc) []string {
+	names := make([]string, len(procs))
+	for i, p := range procs {
+		names[i] = p.Name
+	}
+	return names
 }
 
 // splitTarget parses "repo" or "repo:profile" into its parts.
@@ -213,15 +428,19 @@ func mergeEnv(profileEnv map[string]string, node *run.NodeResolution) ([]string,
 	return out, pathAdded
 }
 
-func printHeader(w io.Writer, repo, profile, branch string, node *run.NodeResolution, p repocfg.Profile) {
+func printHeader(w io.Writer, repo, profile, branch string, node *run.NodeResolution, p repocfg.Profile, country *repocfg.Country) {
 	nodeInfo := ""
 	if node != nil {
 		nodeInfo = fmt.Sprintf(", node=%s(%s)", node.Version, node.Source)
 	}
+	profileLabel := profile
+	if country != nil {
+		profileLabel = fmt.Sprintf("%s(%s)", profile, country.Code)
+	}
 	fmt.Fprintf(w, "%s %s %s\n",
 		output.Cyan("▶"),
 		output.Bold(repo),
-		output.Dim(fmt.Sprintf("(%s) — profile=%s%s", branch, profile, nodeInfo)),
+		output.Dim(fmt.Sprintf("(%s) — profile=%s%s", branch, profileLabel, nodeInfo)),
 	)
 	printURLs(w, p)
 }
@@ -253,10 +472,17 @@ func printURLs(w io.Writer, p repocfg.Profile) {
 	}
 }
 
-func printDryRun(w io.Writer, repo, profile, dir, branch string, p repocfg.Profile, pathAdded string, node *run.NodeResolution) {
+func printDryRun(w io.Writer, repo, profile, dir, branch string, p repocfg.Profile, pathAdded string, node *run.NodeResolution, country *repocfg.Country) {
 	fmt.Fprintf(w, "%s %s:%s\n", output.Bold("dry-run"), repo, profile)
 	fmt.Fprintf(w, "  실행 디렉토리: %s\n", dir)
 	fmt.Fprintf(w, "  현재 브랜치:   %s %s\n", branch, output.Dim("(건드리지 않음)"))
+	if country != nil {
+		verified := "검증 통과"
+		if len(country.Requires) > 0 {
+			verified = "검증 통과: " + joinComma(country.Requires)
+		}
+		fmt.Fprintf(w, "  국가:          %s  %s\n", country.Code, output.Dim("("+verified+")"))
+	}
 	if node != nil {
 		fmt.Fprintf(w, "  Node:          %s  %s\n", node.Version, output.Dim(fmt.Sprintf("(%s @ %s)", node.Source, node.BinDir)))
 	}

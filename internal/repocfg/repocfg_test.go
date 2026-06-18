@@ -1,6 +1,9 @@
 package repocfg
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The embedded repos.yml is the authoritative test input — loading it
 // exercises the YAML schema (including the new runs: block) end-to-end.
@@ -151,5 +154,56 @@ func TestProfileFor_ProcEmptyCmd(t *testing.T) {
 	}
 	if _, _, err := c.ProfileFor("r", "a"); err == nil {
 		t.Fatal("expected error for proc with empty cmd")
+	}
+}
+
+func sampleCountries() *Countries {
+	return &Countries{
+		Default: "kr",
+		Options: []Country{
+			{Code: "kr", Script: "local", Requires: []string{"back-end/.env"}},
+			{Code: "en", Script: "local_en", Requires: []string{"back-end/.env.en"}},
+			{Code: "jp", Script: "local_jp", Requires: []string{"back-end/.env.jp"}},
+		},
+	}
+}
+
+func TestCountries_Find(t *testing.T) {
+	cs := sampleCountries()
+	if c, ok := cs.Find("en"); !ok || c.Script != "local_en" {
+		t.Fatalf("Find(en) = %+v, %v", c, ok)
+	}
+	if _, ok := cs.Find("xx"); ok {
+		t.Fatal("Find(xx) should not be found")
+	}
+}
+
+func TestCountries_Codes(t *testing.T) {
+	if got := sampleCountries().Codes(); got != "kr, en, jp" {
+		t.Fatalf("Codes() = %q, want \"kr, en, jp\"", got)
+	}
+}
+
+func TestSubstituteScript_Procs(t *testing.T) {
+	p := Profile{Procs: []Proc{
+		{Name: "back", Cmd: []string{"npm", "run", "{script}"}},
+		{Name: "front", Cmd: []string{"npm", "run", "{script}"}},
+	}}
+	out := p.SubstituteScript("local_en")
+	for _, pr := range out.Procs {
+		if got := strings.Join(pr.Cmd, " "); got != "npm run local_en" {
+			t.Fatalf("proc %s cmd = %q, want \"npm run local_en\"", pr.Name, got)
+		}
+	}
+	// original untouched
+	if p.Procs[0].Cmd[2] != "{script}" {
+		t.Fatalf("original mutated: %v", p.Procs[0].Cmd)
+	}
+}
+
+func TestSubstituteScript_Cmd(t *testing.T) {
+	p := Profile{Cmd: []string{"yarn", "{script}"}}
+	if got := strings.Join(p.SubstituteScript("start").Cmd, " "); got != "yarn start" {
+		t.Fatalf("cmd = %q, want \"yarn start\"", got)
 	}
 }
