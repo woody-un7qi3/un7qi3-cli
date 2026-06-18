@@ -1,9 +1,14 @@
 package logs
 
 import (
+	"bufio"
+	"context"
 	"fmt"
+	"io"
+	"os/exec"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
@@ -36,4 +41,59 @@ func colorNum(num int, s string) string {
 		output.Cyan, output.Green, output.Yellow, output.Red, output.Blue, output.Dim,
 	}
 	return palette[(num-1)%len(palette)](s)
+}
+
+// StreamMerged 는 각 인스턴스의 eb 프로세스를 spawn 해 라인을 prefix·grep 후 합치고,
+// 인스턴스별 실패는 격리한다.
+func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env string,
+	insts []Instance, follow bool, lines int, grep string) error {
+
+	var re *regexp.Regexp
+	if grep != "" {
+		var err error
+		if re, err = regexp.Compile(grep); err != nil {
+			return fmt.Errorf("--grep 정규식 오류: %w", err)
+		}
+	}
+	fmt.Fprint(w, RenderLegend(insts)) // 범례
+
+	var wg sync.WaitGroup
+	var mu sync.Mutex // w 직렬화
+	for _, in := range insts {
+		wg.Add(1)
+		go func(in Instance) {
+			defer wg.Done()
+			args := src.TailArgs(t, env, in, follow, lines)
+			cmd := exec.CommandContext(ctx, "eb", args...)
+			stdout, err := cmd.StdoutPipe()
+			cmd.Stderr = cmd.Stdout // eb 경고도 같이
+			if err == nil {
+				err = cmd.Start()
+			}
+			if err != nil {
+				mu.Lock()
+				fmt.Fprintln(w, PrefixLine(in.Num, output.Red("접속 실패: ")+err.Error()))
+				mu.Unlock()
+				return
+			}
+			sc := bufio.NewScanner(stdout)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for sc.Scan() {
+				line := sc.Text()
+				if !GrepMatch(re, line) {
+					continue
+				}
+				mu.Lock()
+				fmt.Fprintln(w, PrefixLine(in.Num, line))
+				mu.Unlock()
+			}
+			if err := cmd.Wait(); err != nil {
+				mu.Lock()
+				fmt.Fprintln(w, PrefixLine(in.Num, output.Dim("스트림 종료: "+err.Error())))
+				mu.Unlock()
+			}
+		}(in)
+	}
+	wg.Wait()
+	return nil
 }
