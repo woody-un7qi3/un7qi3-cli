@@ -34,3 +34,14 @@ func TestGrepMatch(t *testing.T) {
 		t.Error("nil 정규식은 항상 통과")
 	}
 }
+
+func TestRenderLine(t *testing.T) {
+	got := renderLine(LogLine{Num: 1, ID: "i-0abc123", Text: "hello", Kind: KindLog})
+	if !strings.Contains(got, "0abc1") || !strings.Contains(got, "hello") {
+		t.Errorf("KindLog 렌더 틀림: %q", got)
+	}
+	ce := renderLine(LogLine{Num: 2, ID: "i-x", Text: "boom", Kind: KindConnErr})
+	if !strings.Contains(ce, "접속 실패") || !strings.Contains(ce, "boom") {
+		t.Errorf("KindConnErr 렌더 틀림: %q", ce)
+	}
+}

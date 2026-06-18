@@ -1,14 +1,11 @@
 package logs
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
-	"os/exec"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
@@ -62,8 +59,20 @@ func colorNum(num int, s string) string {
 	return palette[(num-1)%len(palette)](s)
 }
 
-// StreamMerged 는 각 인스턴스의 eb 프로세스를 spawn 해 라인을 prefix·grep 후 합치고,
-// 인스턴스별 실패는 격리한다.
+// renderLine 은 LogLine 을 색상 prefix 가 붙은 한 줄로 렌더한다(평문/TUI 공용).
+func renderLine(ln LogLine) string {
+	switch ln.Kind {
+	case KindConnErr:
+		return PrefixLine(ln.Num, ln.ID, output.Red("접속 실패: ")+ln.Text)
+	case KindEnd:
+		return PrefixLine(ln.Num, ln.ID, output.Dim("스트림 종료: "+ln.Text))
+	default:
+		return PrefixLine(ln.Num, ln.ID, highlightLevel(ln.Text))
+	}
+}
+
+// StreamMerged 는 StreamLines 를 소비해 한 화면에 합쳐 출력한다(평문 모드).
+// --grep 가 있으면 KindLog 라인에 클라이언트 재필터를 적용해 eb 로컬 경고를 거른다.
 func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env string,
 	insts []Instance, follow bool, lines int, grep string) error {
 
@@ -74,45 +83,12 @@ func StreamMerged(ctx context.Context, w io.Writer, src Source, t Target, env st
 			return fmt.Errorf("--grep 정규식 오류: %w", err)
 		}
 	}
-	fmt.Fprint(w, RenderLegend(insts)) // 범례
-
-	var wg sync.WaitGroup
-	var mu sync.Mutex // w 직렬화
-	for _, in := range insts {
-		wg.Add(1)
-		go func(in Instance) {
-			defer wg.Done()
-			args := src.TailArgs(t, env, in, follow, lines, grep)
-			cmd := exec.CommandContext(ctx, "eb", args...)
-			stdout, err := cmd.StdoutPipe()
-			cmd.Stderr = cmd.Stdout // eb 경고도 같이
-			if err == nil {
-				err = cmd.Start()
-			}
-			if err != nil {
-				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, output.Red("접속 실패: ")+err.Error()))
-				mu.Unlock()
-				return
-			}
-			sc := bufio.NewScanner(stdout)
-			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-			for sc.Scan() {
-				line := sc.Text()
-				if !GrepMatch(re, line) {
-					continue
-				}
-				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, highlightLevel(line)))
-				mu.Unlock()
-			}
-			if err := cmd.Wait(); err != nil {
-				mu.Lock()
-				fmt.Fprintln(w, PrefixLine(in.Num, in.ID, output.Dim("스트림 종료: "+err.Error())))
-				mu.Unlock()
-			}
-		}(in)
+	fmt.Fprint(w, RenderLegend(insts))
+	for ln := range StreamLines(ctx, src, t, env, insts, follow, lines, grep) {
+		if ln.Kind == KindLog && !GrepMatch(re, ln.Text) {
+			continue
+		}
+		fmt.Fprintln(w, renderLine(ln))
 	}
-	wg.Wait()
 	return nil
 }
