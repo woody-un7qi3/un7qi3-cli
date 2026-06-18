@@ -173,7 +173,7 @@ func TestPrintProfilesHumanContainsKeyFields(t *testing.T) {
 	out := buf.String()
 	for _, s := range []string{
 		"forceteller-admin:local",
-		"2 procs",
+		"프로세스 2개",
 		"back=http://localhost:3000",
 		"front=http://localhost:4200",
 	} {

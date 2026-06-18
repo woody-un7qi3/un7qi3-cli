@@ -36,6 +36,9 @@ type profileJSON struct {
 	URL     string            `json:"url,omitempty"`
 	Cmd     []string          `json:"cmd,omitempty"`
 	Procs   []procJSON        `json:"procs,omitempty"`
+	// Countries lists the locale variants when the profile declares a country
+	// axis (forceteller-admin.local). Absent for profiles without one.
+	Countries []countryJSON `json:"countries,omitempty"`
 }
 
 type procJSON struct {
@@ -43,6 +46,13 @@ type procJSON struct {
 	Cwd  string   `json:"cwd"`
 	Cmd  []string `json:"cmd"`
 	URL  string   `json:"url,omitempty"`
+}
+
+type countryJSON struct {
+	Code     string   `json:"code"`
+	Script   string   `json:"script"`
+	Default  bool     `json:"default,omitempty"`
+	Requires []string `json:"requires,omitempty"`
 }
 
 type profilesOutput struct {
@@ -162,6 +172,17 @@ func collectProfiles(cfg *repocfg.Config, reposDir, filterRepo string) []profile
 					})
 				}
 			}
+			if p.Countries != nil {
+				entry.Countries = make([]countryJSON, 0, len(p.Countries.Options))
+				for _, ct := range p.Countries.Options {
+					entry.Countries = append(entry.Countries, countryJSON{
+						Code:     ct.Code,
+						Script:   ct.Script,
+						Default:  ct.Code == p.Countries.Default,
+						Requires: ct.Requires,
+					})
+				}
+			}
 			out = append(out, entry)
 		}
 	}
@@ -170,14 +191,14 @@ func collectProfiles(cfg *repocfg.Config, reposDir, filterRepo string) []profile
 
 // printProfilesHuman renders one row per profile as a tab-aligned table.
 //
-// Columns: REPO:PROFILE | DEFAULT | NODE | KIND | URL or proc summary.
+// Columns: REPO:PROFILE | DEFAULT | NODE | 종류 | URL or proc summary.
 func printProfilesHuman(w io.Writer, profiles []profileJSON) {
 	if len(profiles) == 0 {
 		fmt.Fprintln(w, output.Dim("(등록된 프로파일 없음)"))
 		return
 	}
 	tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "REPO:PROFILE\tDEFAULT\tNODE\tKIND\tURL/PROCS")
+	fmt.Fprintln(tw, "REPO:PROFILE\tDEFAULT\tNODE\t종류\tURL/프로세스")
 	for _, p := range profiles {
 		def := " "
 		if p.Default {
@@ -189,7 +210,7 @@ func printProfilesHuman(w io.Writer, profiles []profileJSON) {
 		}
 		var kind, summary string
 		if len(p.Procs) > 0 {
-			kind = fmt.Sprintf("%d procs", len(p.Procs))
+			kind = fmt.Sprintf("프로세스 %d개", len(p.Procs))
 			parts := make([]string, 0, len(p.Procs))
 			for _, pr := range p.Procs {
 				if pr.URL != "" {
@@ -200,7 +221,7 @@ func printProfilesHuman(w io.Writer, profiles []profileJSON) {
 			}
 			summary = strings.Join(parts, ", ")
 		} else {
-			kind = "cmd"
+			kind = "단일 실행"
 			summary = p.URL
 			if summary == "" {
 				summary = strings.Join(p.Cmd, " ")
