@@ -109,9 +109,9 @@ func init() {
 	rootCmd.SetUsageTemplate(usageTemplate)
 	rootCmd.SetHelpTemplate(helpTemplate)
 
-	// --json 은 바인딩 변수 없이 등록만 한다. 출력 형식이 필요한 서브커맨드가
-	// 각자 cmd.Flags().GetBool("json") 으로 조회한다.
-	rootCmd.PersistentFlags().Bool("json", false, "JSON 형식으로 출력")
+	// --json 은 일부 명령만 지원하므로 전역이 아니라 지원 명령에 로컬로 등록한다
+	// (각 명령이 cmd.Flags().Bool("json", ...) 후 GetBool 로 조회). --verbose 는
+	// shell-out echo 를 켜는 횡단 관심사라 전역(persistent)으로 둔다.
 	rootCmd.PersistentFlags().BoolVarP(&flagVerbose, "verbose", "v", false, "상세 로그 출력")
 
 	helpCmd := newHelpCmd()

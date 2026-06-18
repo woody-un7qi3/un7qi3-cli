@@ -112,6 +112,7 @@ func newListCmd() *cobra.Command {
 	cmd.Flags().Int("limit", 100, "최대 표시 개수")
 	cmd.Flags().Bool("archived", false, "archived 레포만 표시")
 	cmd.Flags().Bool("no-archived", true, "archived 레포 제외 (기본)")
+	cmd.Flags().Bool("json", false, "JSON 형식으로 출력")
 	return cmd
 }
 

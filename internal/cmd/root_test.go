@@ -81,6 +81,49 @@ func TestRenderCommandGroup_UngroupedFallback(t *testing.T) {
 	}
 }
 
+// --json 은 일부 명령만 지원하므로 전역(persistent) 플래그가 아니라 지원 명령에만
+// 로컬로 등록돼야 한다. --verbose 는 횡단 관심사라 전역 유지.
+func TestJSONFlagScopedToSupportingCommands(t *testing.T) {
+	if rootCmd.PersistentFlags().Lookup("json") != nil {
+		t.Error("--json 은 전역(persistent) 플래그가 아니어야 한다")
+	}
+	if rootCmd.PersistentFlags().Lookup("verbose") == nil {
+		t.Error("--verbose 는 전역으로 유지돼야 한다")
+	}
+
+	supporting := [][]string{
+		{"doctor"}, {"version"},
+		{"auth", "status"}, {"repo", "list"}, {"repo", "clone"}, {"run", "profiles"},
+	}
+	for _, path := range supporting {
+		c := findCmdByPath(t, path)
+		if c.LocalFlags().Lookup("json") == nil {
+			t.Errorf("%v 는 로컬 --json 플래그를 가져야 한다", path)
+		}
+	}
+
+	// 미지원 명령(logs)은 --json 을 상속하지도, 로컬로 갖지도 않아야 한다.
+	logs := findCmdByPath(t, []string{"logs"})
+	if logs.InheritedFlags().Lookup("json") != nil {
+		t.Error("logs 가 --json 을 상속하면 안 된다")
+	}
+	if logs.LocalFlags().Lookup("json") != nil {
+		t.Error("logs 에 로컬 --json 이 있으면 안 된다")
+	}
+}
+
+func findCmdByPath(t *testing.T, path []string) *cobra.Command {
+	t.Helper()
+	c, _, err := rootCmd.Find(path)
+	if err != nil {
+		t.Fatalf("명령 %v 찾기 실패: %v", path, err)
+	}
+	if c.Name() != path[len(path)-1] {
+		t.Fatalf("명령 %v 를 못 찾음(실제: %s)", path, c.Name())
+	}
+	return c
+}
+
 // inGroup is a tiny helper but the chain "AddCommand(inGroup(NewCmd(), id))"
 // is everywhere — make sure it doesn't drop the group.
 func TestInGroup_AssignsID(t *testing.T) {

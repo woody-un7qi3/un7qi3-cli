@@ -90,6 +90,7 @@ func newCloneCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&all, "all", false, "후보 레포 전부 선택 (비대화형)")
 	cmd.Flags().BoolVar(&list, "list", false, "후보 레포 목록만 표시하고 종료")
 	cmd.MarkFlagsMutuallyExclusive("all", "list")
+	cmd.Flags().Bool("json", false, "JSON 형식으로 출력")
 	return cmd
 }
 

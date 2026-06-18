@@ -61,6 +61,7 @@ func newStatusCmd() *cobra.Command {
 		},
 	}
 	addProviderFlags(cmd)
+	cmd.Flags().Bool("json", false, "JSON 형식으로 출력")
 	return cmd
 }
 

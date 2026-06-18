@@ -22,7 +22,7 @@ func NewCmd() *cobra.Command {
 		output.HelpExample("uq version", "사람 친화 출력"),
 		output.HelpExample("uq version --json", "JSON"),
 	}, "\n")
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "uq 버전 표시",
 		Long:  long,
@@ -40,4 +40,6 @@ func NewCmd() *cobra.Command {
 			return err
 		},
 	}
+	cmd.Flags().Bool("json", false, "JSON 형식으로 출력")
+	return cmd
 }
