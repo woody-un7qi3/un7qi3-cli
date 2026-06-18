@@ -34,7 +34,8 @@ tail -f web.stdout.log       # 직접 tail
 
 - **국가 = (application + region)** — application 이름과 region 이 국가마다 다르다. 발견 불가능(특히 region)하므로 **선언해야 한다.**
 - **환경(beta/prod)은 발견 가능** — application 안의 환경명은 `aws elasticbeanstalk describe-environments` 로 실시간 발견한다. 이름의 `-j21` suffix 는 재생성 시 바뀌므로 손으로 적지 않는다.
-- **`eb ssh <env> --region <r>` 는 디렉토리에 무관하게 동작**(레포 클론·`.elasticbeanstalk/config.yml` 불필요)한다고 확인됨. 따라서 uq 는 레포 클론을 전제하지 않는다.
+- **`eb ssh <env> --region <r> -c "<cmd>"` 는 디렉토리에 무관하게 동작**(레포 클론·`.elasticbeanstalk/config.yml` 불필요)함을 실측 확인. eb 가 SSH 키(`~/.ssh/forceteller-service.pem`)를 자동 해석하고 `-c` 명령 출력을 stdout 으로 흘린다 → uq 는 키 관리·클론 불필요, `-c "sudo tail -F …"` 로 스트리밍.
+  - 단, eb ssh 는 접속 시 SG 22번 포트를 임시로 열려 시도하며 소스 제한이 있으면 `WARNING: ... Use the --force flag` 를 내고 열지 않은 채 접속한다. **uq 는 `--force` 를 절대 쓰지 않는다**(인프라 변경). 개발자 IP 가 SG 에 없어 접속 실패하면 eb 의 경고/에러를 그대로 사용자에게 전달한다.
 - 모니터링 대상은 **미리 등록된 레포로 제한**한다(allowlist). 계정 전체를 훑지 않아 무관 서비스 노출·TUI 노이즈를 막는다.
 - `aws` CLI 는 doctor 가 추적. `eb` CLI 는 미추적(이번에 추가).
 - `internal/run/split.go` 의 패널 여는 로직과 `internal/run/terminal.go` 의 `DetectMultiplexer` 가 이미 있어 `--split` 에 재사용.
