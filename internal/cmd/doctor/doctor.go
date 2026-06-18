@@ -519,6 +519,12 @@ func buildChecks() []Check {
 			Run:   versionCheck("aws", []string{"--version"}, `aws-cli/(\S+)`),
 		},
 		{
+			Name:  "eb",
+			Roles: []string{RoleInfra},
+			Fix:   "pip install awsebcli",
+			Run:   versionCheck("eb", []string{"--version"}, `EB CLI (\S+)`),
+		},
+		{
 			Name:  "gcloud",
 			Roles: []string{RoleInfra},
 			Fix:   "brew install --cask google-cloud-sdk",
