@@ -169,7 +169,13 @@ func (m model) View() string {
 	if m.editing {
 		footer = "/필터: " + m.input.View()
 	} else {
-		footer = output.Dim("space=일시정지  1-9=인스턴스  /=필터  g/G=처음/끝  q=종료")
+		hints := output.Dim("space=일시정지  1-9=인스턴스  /=필터  g/G=처음/끝  q=종료")
+		if m.filter != "" {
+			// 적용 중인 필터를 상시 표시 — 인스턴스 솔로와 함께 걸려있음을 알 수 있게.
+			footer = output.Cyan("필터: "+m.filter) + "  " + hints
+		} else {
+			footer = hints
+		}
 	}
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
