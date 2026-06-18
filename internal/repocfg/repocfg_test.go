@@ -207,3 +207,31 @@ func TestSubstituteScript_Cmd(t *testing.T) {
 		t.Fatalf("cmd = %q, want \"yarn start\"", got)
 	}
 }
+
+func TestLogsForReturnsConfiguredRepo(t *testing.T) {
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	lc, ok := cfg.LogsFor("forceteller-api")
+	if !ok {
+		t.Fatal("forceteller-api 가 logs 에 등록돼 있어야 함")
+	}
+	if lc.PathOrDefault() != DefaultLogPath {
+		t.Errorf("기본 경로 기대 %q, 실제 %q", DefaultLogPath, lc.PathOrDefault())
+	}
+	kr, ok := lc.Countries["kr"]
+	if !ok {
+		t.Fatal("kr 국가가 있어야 함")
+	}
+	if kr.App != "kr-forceteller-api" || kr.Region != "ap-northeast-2" {
+		t.Errorf("kr 매핑 틀림: %+v", kr)
+	}
+}
+
+func TestLogsForUnknownRepo(t *testing.T) {
+	cfg, _ := Load()
+	if _, ok := cfg.LogsFor("forceteller-app"); ok {
+		t.Error("logs 미등록 레포는 false 여야 함")
+	}
+}

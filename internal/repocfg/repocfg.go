@@ -16,11 +16,27 @@ import (
 //go:embed repos.yml
 var configBytes []byte
 
+// DefaultLogPath 는 logs.path 미지정 시 사용할 EB 인스턴스 로그 경로.
+const DefaultLogPath = "/var/log/web.stdout.log"
+
+// LogsConfig 는 한 레포의 uq logs 설정. Countries 는 국가코드→(app, region).
+type LogsConfig struct {
+	Path      string                   `yaml:"path"`
+	Countries map[string]CountryTarget `yaml:"countries"`
+}
+
+// CountryTarget 은 한 국가의 EB application 이름과 리전.
+type CountryTarget struct {
+	App    string `yaml:"app"`
+	Region string `yaml:"region"`
+}
+
 // Config is the parsed shape of repos.yml.
 type Config struct {
-	Repos    map[string][]string `yaml:"repos"`
-	Defaults []string            `yaml:"defaults"`
-	Runs     map[string]RepoRuns `yaml:"runs"`
+	Repos    map[string][]string  `yaml:"repos"`
+	Defaults []string             `yaml:"defaults"`
+	Runs     map[string]RepoRuns  `yaml:"runs"`
+	Logs     map[string]LogsConfig `yaml:"logs"`
 }
 
 // RepoRuns groups the run profiles registered for a single repo.
@@ -227,4 +243,18 @@ func joinKeys(m map[string]Profile) string {
 		out += n
 	}
 	return out
+}
+
+// PathOrDefault 는 설정된 로그 경로, 없으면 DefaultLogPath.
+func (l LogsConfig) PathOrDefault() string {
+	if l.Path != "" {
+		return l.Path
+	}
+	return DefaultLogPath
+}
+
+// LogsFor 는 레포의 logs 설정을 반환한다. 미등록이면 ok=false.
+func (c *Config) LogsFor(repo string) (LogsConfig, bool) {
+	lc, ok := c.Logs[repo]
+	return lc, ok
 }
