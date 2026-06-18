@@ -163,7 +163,7 @@ EB 드라이버(`internal/logs/eb.go`):
     ```
   - **라인별 prefix** `[#k]` 를 **인스턴스마다 다른 색**으로 붙임(run 의 `[back]`/`[front]` 방식). 색+번호로 구분, 범례로 실제 EC2 id/IP 추적.
   - `--grep` 정규식은 prefix 를 제외한 본문에 적용. Ctrl+C 로 전체 종료.
-- **split**: 인스턴스별 별도 패널. `internal/run/split.go` 의 패널 여는 로직을 `internal/run` 공유 패키지로 추출해 run·logs 가 함께 쓴다. 분할 불가 환경은 run 과 동일하게 merged 로 graceful degrade + 안내.
+- **split**: 인스턴스별 별도 패널. `internal/run/split.go` 의 패널 여는 로직을 `internal/run` 공유 패키지로 추출해 run·logs 가 함께 쓴다. **logs 의 split 은 cmux·iterm2 만 지원**하고, 그 외(ghostty/Apple Terminal/none)는 **merged 로 graceful degrade + 안내**한다. (run 의 기존 멀티플렉서 지원 범위는 그대로 둔다.)
 
 ### 연결 실패 처리
 
