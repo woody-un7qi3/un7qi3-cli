@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/charmbracelet/huh"
@@ -47,9 +48,6 @@ func NewCmd() *cobra.Command {
 		Long:  long,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if split && noFollow {
-				return fmt.Errorf("--split 과 --no-follow 는 함께 쓸 수 없습니다")
-			}
 			return runLogs(cmd, args[0], args[1:])
 		},
 	}
@@ -141,6 +139,9 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	if split {
 		mux := run.DetectMultiplexer()
 		if eblogs.SplitSupported(mux) {
+			if grep != "" {
+				fmt.Fprintln(w, output.Yellow("⚠"), "--split 에서는 --grep 가 적용되지 않습니다")
+			}
 			return runLogsSplit(w, src, tgt, env, insts, mux, !noFollow, lines)
 		}
 		fmt.Fprintln(w, output.Yellow("⚠"), "현재 터미널은 분할 미지원 — merged 로 진행")
@@ -154,6 +155,7 @@ func countryCodes(lc repocfg.LogsConfig) []string {
 	for k := range lc.Countries {
 		codes = append(codes, k)
 	}
+	sort.Strings(codes)
 	return codes
 }
 
