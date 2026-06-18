@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty'); case \"$f\" in *.go|*.yml|*.yaml|*go.mod|*go.sum|*/Makefile) ;; *) exit 0 ;; esac; out=$(make -C \"$CLAUDE_PROJECT_DIR\" install 2>&1) || { echo \"make install 실패:\" >&2; echo \"$out\" >&2; exit 2; }",
+            "statusMessage": "make install 실행 중..."
+          }
+        ]
+      }
+    ]
+  }
+}
