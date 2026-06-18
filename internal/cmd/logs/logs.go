@@ -156,14 +156,28 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !noFollow, lines, grep)
 }
 
-// countryCodes 는 LogsConfig 의 국가 코드 목록을 반환한다.
+// countryPreferredOrder 는 국가 선택 시 고정 노출 순서. 여기 없는 코드는
+// 알파벳순으로 뒤에 붙는다.
+var countryPreferredOrder = []string{"kr", "en", "jp"}
+
+// countryCodes 는 LogsConfig 의 국가 코드를 kr→en→jp 고정 순서로 반환한다.
 func countryCodes(lc repocfg.LogsConfig) []string {
+	preferred := make(map[string]bool, len(countryPreferredOrder))
 	codes := make([]string, 0, len(lc.Countries))
-	for k := range lc.Countries {
-		codes = append(codes, k)
+	for _, c := range countryPreferredOrder {
+		if _, ok := lc.Countries[c]; ok {
+			codes = append(codes, c)
+			preferred[c] = true
+		}
 	}
-	sort.Strings(codes)
-	return codes
+	rest := make([]string, 0)
+	for k := range lc.Countries {
+		if !preferred[k] {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	return append(codes, rest...)
 }
 
 // pickCountry 는 TTY 에서 국가 코드를 선택받는다.
