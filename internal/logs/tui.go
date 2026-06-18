@@ -130,7 +130,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			} else {
 				m.solo = n // 해당 인스턴스만
 			}
+			m.userScrolled = false // 솔로 전환 시 자동추적 재개
 			m.refresh()
+			if m.ready {
+				m.vp.GotoBottom() // 선택 인스턴스의 실시간 하단으로 점프
+			}
 			return m, nil
 		}
 		var cmd tea.Cmd
