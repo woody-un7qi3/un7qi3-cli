@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.4](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.3...v0.1.4) (2026-06-22)
+
+
+### 버그 수정
+
+* **upgrade:** 릴리즈 노트에서 마크다운 굵게 표시(**) 제거 ([8675e2a](https://github.com/woody-un7qi3/un7qi3-cli/commit/8675e2ac1eddcf3e6b709c391e926edd8acc99d0))
+
 ## [0.1.3](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.2...v0.1.3) (2026-06-22)
 
 
