@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.7](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.6...v0.1.7) (2026-06-22)
+
+
+### 기능
+
+* **run:** app(en) 프로파일에도 API 서버 switch 추가 ([5b6cf07](https://github.com/woody-un7qi3/un7qi3-cli/commit/5b6cf07065d6f69a10a9d5a0f8f5b21375d9e18f))
+* **run:** 로컬 포트 전환 시 백엔드 확인 후 계속 여부를 묻는다 ([6e0aa90](https://github.com/woody-un7qi3/un7qi3-cli/commit/6e0aa907bafbc83053c9b536e351f77a7daa421c))
+
 ## [0.1.6](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.5...v0.1.6) (2026-06-22)
 
 
