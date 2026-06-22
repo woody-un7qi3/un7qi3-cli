@@ -239,20 +239,59 @@ func newRunListCmd(parent *cobra.Command) *cobra.Command {
 	}
 }
 
-// pickProfile 은 TTY 에서 repo:profile 을 선택받는다. 반환값은 uq run 인자 형식.
+// pickProfile 은 TTY 에서 repo:profile 을 2단계로 선택받는다(uq log list 패턴):
+// 먼저 레포(큰 종류)를 고르고, 그 레포에 프로파일이 여럿이면 프로파일을 고른다.
+// 레포가 하나면 레포 단계를, 프로파일이 하나면 프로파일 단계를 생략한다.
+// 반환값은 uq run 인자 형식(repo:profile). profiles 는 collectProfiles 의 순서
+// (레포 알파벳순, 레포 내 default 우선)를 유지한다고 가정한다.
 func pickProfile(profiles []profileJSON) (string, error) {
-	opts := make([]huh.Option[string], 0, len(profiles))
+	var repos []string
+	byRepo := map[string][]profileJSON{}
 	for _, p := range profiles {
-		target := p.Repo + ":" + p.Name
-		label := target
-		if p.Default {
-			label += "  (default)"
+		if _, ok := byRepo[p.Repo]; !ok {
+			repos = append(repos, p.Repo)
 		}
-		opts = append(opts, huh.NewOption(label, target))
+		byRepo[p.Repo] = append(byRepo[p.Repo], p)
 	}
-	choice := profiles[0].Repo + ":" + profiles[0].Name
+
+	repo := repos[0]
+	if len(repos) > 1 {
+		r, err := pickOne("레포 선택", repos, repos)
+		if err != nil {
+			return "", err
+		}
+		repo = r
+	}
+
+	ps := byRepo[repo]
+	if len(ps) == 1 {
+		return repo + ":" + ps[0].Name, nil
+	}
+	labels := make([]string, len(ps))
+	values := make([]string, len(ps))
+	for i, p := range ps {
+		labels[i] = p.Name
+		if p.Default {
+			labels[i] += "  (default)"
+		}
+		values[i] = p.Name
+	}
+	name, err := pickOne(repo+" — 프로파일 선택", labels, values)
+	if err != nil {
+		return "", err
+	}
+	return repo + ":" + name, nil
+}
+
+// pickOne 은 라벨/값 병렬 슬라이스로 huh 단일 선택을 띄운다.
+func pickOne(title string, labels, values []string) (string, error) {
+	opts := make([]huh.Option[string], len(values))
+	for i := range values {
+		opts[i] = huh.NewOption(labels[i], values[i])
+	}
+	choice := values[0]
 	if err := huh.NewSelect[string]().
-		Title("실행할 프로파일 선택").
+		Title(title).
 		Options(opts...).
 		Value(&choice).
 		Run(); err != nil {
