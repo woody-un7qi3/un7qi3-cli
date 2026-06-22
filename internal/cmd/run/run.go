@@ -162,18 +162,15 @@ func NewCmd() *cobra.Command {
 				}
 				// 단일 프로세스는 분할 대상이 없다 — 일반 포그라운드로.
 			}
-			// 인터랙티브 터미널이면 단일·멀티 모두 uq log 와 동일한 공유 TUI 로 통합해
-			// 보여준다(단일은 합성 proc 1개로 취급). 출력이 파이프/리다이렉트면(둘 중
-			// 하나라도 비TTY) 기존 평문 경로로 폴백 — 단일은 stdin 연결도 유지된다.
+			// 멀티프로세스 + 인터랙티브 터미널이면 uq log 와 동일한 공유 TUI 로 통합해
+			// 보여준다. 출력이 파이프/리다이렉트면(둘 중 하나라도 비TTY) prefix 평문으로 폴백.
+			// 단일 프로세스는 stdin 핫키 보존을 위해 TUI 를 쓰지 않고 그대로 터미널에 붙인다.
 			useTUI := isTTY && term.IsTerminal(int(os.Stdout.Fd()))
-			title := fmt.Sprintf("uq run  %s:%s", repoName, resolvedName)
 			var runErr error
 			switch {
-			case useTUI && len(profile.Procs) > 0:
-				runErr = execTUI(c.Context(), dir, profile.Procs, env, title)
-			case useTUI:
-				runErr = execTUI(c.Context(), dir,
-					[]repocfg.Proc{{Name: resolvedName, Cmd: profile.Cmd}}, env, title)
+			case len(profile.Procs) > 0 && useTUI:
+				runErr = execTUI(c.Context(), dir, profile.Procs, env,
+					fmt.Sprintf("uq run  %s:%s", repoName, resolvedName))
 			case len(profile.Procs) > 0:
 				runErr = execMulti(c.Context(), dir, profile.Procs, env)
 			default:
@@ -762,7 +759,6 @@ type procResult struct {
 //
 // 사용자가 q/Ctrl+C 로 TUI 를 닫거나 ctx 가 취소되면 RunTUI 가 반환하며, 그때
 // 모든 자식 그룹에 SIGINT 를 보내 정리한다. 채널은 스캐너가 모두 끝나면 닫힌다.
-// 단일 프로세스도 stdin 은 TUI 가 점유하므로 자식에 연결되지 않는다(핫키 미지원).
 func execTUI(ctx context.Context, repoDir string, procs []repocfg.Proc, env []string, title string) error {
 	lanes := make([]eblogs.Lane, len(procs))
 	for i, p := range procs {
