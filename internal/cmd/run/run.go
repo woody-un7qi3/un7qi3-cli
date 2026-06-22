@@ -17,6 +17,7 @@ import (
 	"os"
 	osexec "os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -366,10 +367,18 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 			start = a
 		}
 		region := content[start:]
-		cur, curPos := -1, -1
+		// 각 옵션의 현재 위치를 찾는다(플레이스홀더 옵션은 정규식). 같은 위치에서
+		// 여러 옵션이 매칭되면(예: {url} catch-all 과 localhost:{port}) 고정 문자가
+		// 더 긴(=구체적인) 옵션을 현재로 본다.
+		cur, curPos, curLen, curIn, curSpec := -1, -1, 0, "", -1
 		for i, o := range sc.Options {
-			if p := strings.Index(region, o.Match); p >= 0 && (curPos < 0 || p < curPos) {
-				cur, curPos = i, p
+			pos, length, in, ok := findOption(region, o.Match)
+			if !ok {
+				continue
+			}
+			spec := literalLen(o.Match)
+			if curPos < 0 || pos < curPos || (pos == curPos && spec > curSpec) {
+				cur, curPos, curLen, curIn, curSpec = i, pos, length, in, spec
 			}
 		}
 		if cur < 0 {
@@ -392,13 +401,32 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 		if err != nil {
 			return err
 		}
-		if chosenIdx == cur {
+		chosen := sc.Options[chosenIdx]
+
+		// 같은 옵션이고 입력 플레이스홀더가 없으면 변경 없음.
+		ph := placeholderName(chosen.Match)
+		if chosenIdx == cur && ph == "" {
 			continue
 		}
 
-		curMatch := sc.Options[cur].Match
+		writeStr := chosen.Match
+		if ph != "" {
+			def := chosen.Default
+			if chosenIdx == cur && curIn != "" {
+				def = curIn // 같은 옵션이면 현재 값을 기본값으로
+			}
+			val, err := promptValue(title, ph, def)
+			if err != nil {
+				return err
+			}
+			writeStr = strings.ReplaceAll(writeStr, "{"+ph+"}", val)
+		}
+
 		abs := start + curPos
-		newContent := content[:abs] + sc.Options[chosenIdx].Match + content[abs+len(curMatch):]
+		newContent := content[:abs] + writeStr + content[abs+curLen:]
+		if newContent == content {
+			continue // 실질 변경 없음
+		}
 		info, err := os.Stat(path)
 		if err != nil {
 			return fmt.Errorf("switch %q stat 실패: %w", sw.Name, err)
@@ -406,9 +434,70 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 		if err := os.WriteFile(path, []byte(newContent), info.Mode().Perm()); err != nil {
 			return fmt.Errorf("switch %q 쓰기 실패: %w", sw.Name, err)
 		}
-		fmt.Fprintln(w, output.Green("✓"), title+" →", sc.Options[chosenIdx].Label)
+		fmt.Fprintln(w, output.Green("✓"), title+" →", chosen.Label)
 	}
 	return nil
+}
+
+var rePlaceholder = regexp.MustCompile(`\{(\w+)\}`)
+
+// placeholderName 은 match 의 단일 {name} 플레이스홀더 이름을 반환한다(없으면 "").
+func placeholderName(match string) string {
+	if m := rePlaceholder.FindStringSubmatch(match); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
+// literalLen 은 플레이스홀더를 뺀 고정 문자 길이(감지 특이도 비교용).
+func literalLen(match string) int {
+	return len(rePlaceholder.ReplaceAllString(match, ""))
+}
+
+// findOption 은 region 에서 옵션 match 의 위치/길이를 찾는다. {name} 플레이스홀더가
+// 있으면 정규식으로 찾으며({port}=숫자, 그 외=따옴표 전까지) 매칭된 현재 값을 반환한다.
+func findOption(region, match string) (pos, length int, input string, ok bool) {
+	name := placeholderName(match)
+	if name == "" {
+		p := strings.Index(region, match)
+		if p < 0 {
+			return 0, 0, "", false
+		}
+		return p, len(match), "", true
+	}
+	grp := `([^']*)`
+	if name == "port" {
+		grp = `(\d+)`
+	}
+	pat := strings.Replace(regexp.QuoteMeta(match), regexp.QuoteMeta("{"+name+"}"), grp, 1)
+	loc := regexp.MustCompile(pat).FindStringSubmatchIndex(region)
+	if loc == nil {
+		return 0, 0, "", false
+	}
+	return loc[0], loc[1] - loc[0], region[loc[2]:loc[3]], true
+}
+
+// promptValue 는 플레이스홀더 입력을 받는다(port 는 숫자 검증). def 가 기본값.
+func promptValue(title, name, def string) (string, error) {
+	label := name
+	switch name {
+	case "port":
+		label = "포트"
+	case "url":
+		label = "주소"
+	}
+	v := def
+	in := huh.NewInput().Title(title + " — " + label).Value(&v)
+	if name == "port" {
+		in = in.Validate(func(s string) error {
+			if _, e := strconv.Atoi(strings.TrimSpace(s)); e != nil {
+				return fmt.Errorf("숫자 포트를 입력하세요")
+			}
+			return nil
+		})
+	}
+	err := in.Run()
+	return strings.TrimSpace(v), err
 }
 
 // pickIndex 는 라벨 목록에서 하나를 골라 그 인덱스를 반환한다(def 인덱스를 기본 선택).

@@ -46,13 +46,13 @@ runs:
               - label: "kr"
                 anchor: "kr: {"
                 options:
-                  - { label: "원격 (api-dev)", match: "apiUrl: 'https://api-dev.gc.forceteller.com'" }
-                  - { label: "로컬 (localhost:9200)", match: "apiUrl: 'http://localhost:9200'" }
+                  - { label: "개발 (주소 입력)", match: "apiUrl: '{url}'", default: "https://api-dev.gc.forceteller.com" }
+                  - { label: "로컬 (포트 입력)", match: "apiUrl: 'http://localhost:{port}'", default: "9200" }
               - label: "jp"
                 anchor: "jp: {"
                 options:
-                  - { label: "원격 (api-dev)", match: "apiUrl: 'https://api-dev.gc.forceteller.jp'" }
-                  - { label: "로컬 (localhost:9200)", match: "apiUrl: 'http://localhost:9200'" }
+                  - { label: "개발 (주소 입력)", match: "apiUrl: '{url}'", default: "https://api-dev.gc.forceteller.jp" }
+                  - { label: "로컬 (포트 입력)", match: "apiUrl: 'http://localhost:{port}'", default: "9200" }
 
   forceteller-admin:
     default: local

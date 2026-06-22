@@ -50,10 +50,13 @@ type SwitchScope struct {
 }
 
 // SwitchOption 은 scope 의 한 선택지. Match 는 파일에 들어가는(=현재 감지하는)
-// 정확한 문자열이며, 같은 scope 의 다른 옵션과 겹치지 않아야 한다.
+// 정확한 문자열이다. Match 에 "{port}" 플레이스홀더가 있으면, 이 옵션을 고를 때
+// 사용자에게 포트를 입력받아 치환하고(감지는 localhost:<숫자> 처럼 숫자부) 처리한다.
+// Default 는 그 입력 프롬프트의 기본값(현재 파일값이 있으면 그게 우선).
 type SwitchOption struct {
-	Label string `yaml:"label"`
-	Match string `yaml:"match"`
+	Label   string `yaml:"label"`
+	Match   string `yaml:"match"`
+	Default string `yaml:"default,omitempty"`
 }
 
 // Config is the parsed shape of repos.yml.
