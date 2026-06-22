@@ -4,12 +4,26 @@ package version
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/version"
 )
+
+// kst 는 한국 표준시(UTC+9, DST 없음). tzdata 의존을 피해 고정 오프셋을 쓴다.
+var kst = time.FixedZone("KST", 9*60*60)
+
+// formatBuildDate 는 ldflags 로 주입된 RFC3339(UTC) 빌드 시각을 사람이 읽기 좋은
+// KST 문자열로 바꾼다. 파싱할 수 없으면(예: dev 빌드의 "unknown") 원본을 그대로 둔다.
+func formatBuildDate(raw string) string {
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return raw
+	}
+	return t.In(kst).Format("2006-01-02 15:04:05") + " KST"
+}
 
 // NewCmd returns the `uq version` command.
 func NewCmd() *cobra.Command {
@@ -36,7 +50,7 @@ func NewCmd() *cobra.Command {
 				})
 			}
 			_, err := fmt.Fprintf(cmd.OutOrStdout(), "uq %s (%s, %s)\n",
-				version.Version, version.Commit, version.Date)
+				version.Version, version.Commit, formatBuildDate(version.Date))
 			return err
 		},
 	}
