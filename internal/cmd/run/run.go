@@ -8,6 +8,7 @@
 package run
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
@@ -28,6 +29,7 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
+	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/log"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
 	"github.com/un7qi3inc/un7qi3-cli/internal/run"
@@ -50,7 +52,7 @@ func NewCmd() *cobra.Command {
 		output.Desc("현재 체크아웃된 git 브랜치는 ") + output.Bold("건드리지 않습니다") + output.Desc(" — release/x.y, feature/... 어디서든 그대로 실행."),
 		"",
 		output.Desc("노드 버전은 머신에 설치된 매니저를 자동 탐색합니다: fnm → nvm → mise → asdf → PATH."),
-		output.Desc("멀티프로세스 프로파일(예: forceteller-admin)은 ") + output.Cyan("[name]") + output.Desc(" prefix 로 로그를 합쳐 띄웁니다."),
+		output.Desc("멀티프로세스 프로파일(예: forceteller-admin)은 ") + output.Cyan("uq log") + output.Desc(" 와 동일한 통합 TUI 로 보여줍니다(1-9=프로세스 솔로, /=필터). 파이프 출력 시 [name] 평문."),
 		"",
 		output.Heading("예시"),
 		output.HelpExample("uq run forceteller-app", "default 프로파일"),
@@ -159,10 +161,17 @@ func NewCmd() *cobra.Command {
 				}
 				// 단일 프로세스는 분할 대상이 없다 — 일반 포그라운드로.
 			}
+			// 멀티프로세스 + 인터랙티브 터미널이면 uq log 와 동일한 공유 TUI 로 통합해
+			// 보여준다. 출력이 파이프/리다이렉트면(둘 중 하나라도 비TTY) prefix 평문으로 폴백.
+			useTUI := isTTY && term.IsTerminal(int(os.Stdout.Fd()))
 			var runErr error
-			if len(profile.Procs) > 0 {
+			switch {
+			case len(profile.Procs) > 0 && useTUI:
+				runErr = execMultiTUI(c.Context(), dir, profile.Procs, env,
+					fmt.Sprintf("uq run  %s:%s", repoName, resolvedName))
+			case len(profile.Procs) > 0:
 				runErr = execMulti(c.Context(), dir, profile.Procs, env)
-			} else {
+			default:
 				runErr = execSingle(c.Context(), dir, profile.Cmd, env)
 			}
 			// 자식 프로세스가 비정상 종료하면 그 종료 코드를 그대로 전달한다.
@@ -676,6 +685,117 @@ func execMulti(ctx context.Context, repoDir string, procs []repocfg.Proc, env []
 type procResult struct {
 	name string
 	err  error
+}
+
+// execMultiTUI 는 멀티프로세스 로그를 uq log 와 동일한 공유 TUI 로 띄운다(TTY 전용).
+// 각 proc 의 stdout/stderr 를 라인 단위로 읽어 LogLine 채널로 흘리고, 그 채널을
+// eblogs.RunTUI 에 주입한다. proc N → 소스 #N(토글 라벨=proc 이름).
+//
+// 사용자가 q/Ctrl+C 로 TUI 를 닫거나 ctx 가 취소되면 RunTUI 가 반환하며, 그때
+// 모든 자식 그룹에 SIGINT 를 보내 정리한다. 채널은 스캐너가 모두 끝나면 닫힌다.
+func execMultiTUI(ctx context.Context, repoDir string, procs []repocfg.Proc, env []string, title string) error {
+	lanes := make([]eblogs.Lane, len(procs))
+	for i, p := range procs {
+		lanes[i] = eblogs.Lane{Num: i + 1, Toggle: p.Name}
+	}
+
+	ch := make(chan eblogs.LogLine, 256)
+	pids := make([]int, 0, len(procs))
+	done := make(chan procResult, len(procs))
+	var scanWg sync.WaitGroup
+
+	killGroups := func(sig syscall.Signal) {
+		for _, pid := range pids {
+			_ = syscall.Kill(-pid, sig)
+		}
+	}
+
+	for i, p := range procs {
+		dir := repoDir
+		if p.Cwd != "" {
+			dir = filepath.Join(repoDir, p.Cwd)
+		}
+		if _, err := os.Stat(dir); err != nil {
+			killGroups(syscall.SIGTERM)
+			return fmt.Errorf("proc %s 의 cwd 가 없습니다: %s", p.Name, dir)
+		}
+
+		c := osexec.Command(p.Cmd[0], p.Cmd[1:]...)
+		c.Dir = dir
+		c.Env = env
+		c.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		stdout, err := c.StdoutPipe()
+		if err != nil {
+			killGroups(syscall.SIGTERM)
+			return fmt.Errorf("proc %s stdout: %w", p.Name, err)
+		}
+		stderr, err := c.StderrPipe()
+		if err != nil {
+			killGroups(syscall.SIGTERM)
+			return fmt.Errorf("proc %s stderr: %w", p.Name, err)
+		}
+		if err := c.Start(); err != nil {
+			killGroups(syscall.SIGTERM)
+			return fmt.Errorf("proc %s 시작 실패: %w", p.Name, err)
+		}
+		pids = append(pids, c.Process.Pid)
+
+		num := i + 1
+		name := p.Name
+		// proc 별 스캐너 완료를 기다린 뒤 Wait 한다 — StdoutPipe 문서상 모든 읽기가
+		// 끝나기 전에 Wait 하면 파이프가 일찍 닫혀 레이스가 난다.
+		var pwg sync.WaitGroup
+		pwg.Add(2)
+		scanWg.Add(2)
+		scan := func(r io.Reader) {
+			defer scanWg.Done()
+			defer pwg.Done()
+			scanInto(ch, num, r)
+		}
+		go scan(stdout)
+		go scan(stderr)
+		go func(cmd *osexec.Cmd) {
+			pwg.Wait()
+			done <- procResult{name: name, err: cmd.Wait()}
+		}(c)
+	}
+
+	// 모든 스캐너가 끝나면(= 모든 proc 종료) 채널을 닫는다.
+	go func() {
+		scanWg.Wait()
+		close(ch)
+	}()
+
+	tuiErr := eblogs.RunTUI(ctx, ch, lanes, "", title)
+
+	// TUI 가 닫혔다 → 남은 출력을 비워 스캐너가 채널에 막히지 않게 하고, 자식들을 정리한다.
+	go func() {
+		for range ch {
+		}
+	}()
+	killGroups(syscall.SIGINT)
+
+	var firstFailure error
+	for range pids {
+		r := <-done
+		// ctx 취소(사용자 종료)로 인한 종료 에러는 실패로 보지 않는다.
+		if r.err != nil && firstFailure == nil && ctx.Err() == nil {
+			firstFailure = fmt.Errorf("%s: %w", r.name, r.err)
+		}
+	}
+	if tuiErr != nil {
+		return tuiErr
+	}
+	return firstFailure
+}
+
+// scanInto 는 r 을 라인 단위로 읽어 소스 번호 num 의 LogLine 으로 채널에 보낸다.
+func scanInto(ch chan<- eblogs.LogLine, num int, r io.Reader) {
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		ch <- eblogs.LogLine{Num: num, Text: sc.Text(), Kind: eblogs.KindLog}
+	}
 }
 
 // prefixWriter wraps an io.Writer and inserts a prefix at the start of every
