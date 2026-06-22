@@ -41,3 +41,19 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # release-please 가 다는 "Created releases" 코멘트는 문구를 바꿀 수 없으므로,
+      # 머지된 릴리즈 PR 에 업그레이드 방법과 변경 내역 링크를 담은 코멘트를 덧붙인다.
+      # squash 머지 커밋 제목의 (#N) 에서 PR 번호를 얻는다.
+      - name: 릴리즈 완료 안내 코멘트
+        if: ${{ steps.release.outputs.release_created }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.release.outputs.tag_name }}
+          URL: ${{ steps.release.outputs.html_url }}
+          MSG: ${{ github.event.head_commit.message }}
+        run: |
+          pr=$(printf '%s' "$MSG" | grep -oE '#[0-9]+' | head -1 | tr -d '#')
+          [ -z "$pr" ] && { echo "PR 번호를 찾지 못해 건너뜀"; exit 0; }
+          body=$(printf '🚀 **%s** 배포 완료\n\n- 업그레이드: `uq update`\n- 릴리즈 / 변경 내역: %s\n' "$TAG" "$URL")
+          gh pr comment "$pr" --body "$body"
