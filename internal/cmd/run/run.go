@@ -241,8 +241,13 @@ func newRunListCmd(parent *cobra.Command) *cobra.Command {
 				return err
 			}
 			if sw := cfg.Runs[repoName].Profiles[profileName].Switches; len(sw) > 0 {
-				if err := applySwitches(c.OutOrStderr(), filepath.Join(reposDir, repoName), sw); err != nil {
+				proceed, err := applySwitches(c.OutOrStderr(), filepath.Join(reposDir, repoName), sw)
+				if err != nil {
 					return err
+				}
+				if !proceed {
+					fmt.Fprintln(c.OutOrStderr(), output.Dim("실행을 취소했습니다."))
+					return nil
 				}
 			}
 			return parent.RunE(c, []string{target})
@@ -334,12 +339,13 @@ func pickOne(title string, labels, values []string, def string) (string, error) 
 // applySwitches 는 프로파일의 switch 들을 대화형으로 적용한다. scope 가 여럿이면
 // 먼저 scope(예: 로케일)를 고르고, 그 scope 의 anchor 이후 영역에서 현재 옵션을
 // 감지해 기본 선택으로 보여준 뒤, 다른 옵션을 고르면 그 한 군데만 정확히 치환한다.
-func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error {
+// 반환값 proceed 가 false 면 사용자가 (백엔드 없음 등으로) 실행을 중단한 것이다.
+func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) (proceed bool, err error) {
 	for _, sw := range switches {
 		path := filepath.Join(repoDir, sw.File)
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return fmt.Errorf("switch %q 파일 읽기 실패: %w", sw.Name, err)
+			return false, fmt.Errorf("switch %q 파일 읽기 실패: %w", sw.Name, err)
 		}
 		content := string(data)
 
@@ -351,7 +357,7 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 			}
 			idx, err := pickIndex(sw.Name+" — 대상 선택", labels, 0)
 			if err != nil {
-				return err
+				return false, err
 			}
 			sc = sw.Scopes[idx]
 		}
@@ -399,16 +405,11 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 		}
 		chosenIdx, err := pickIndex(title, labels, cur)
 		if err != nil {
-			return err
+			return false, err
 		}
 		chosen := sc.Options[chosenIdx]
 
-		// 같은 옵션이고 입력 플레이스홀더가 없으면 변경 없음.
 		ph := placeholderName(chosen.Match)
-		if chosenIdx == cur && ph == "" {
-			continue
-		}
-
 		writeStr := chosen.Match
 		if ph != "" {
 			def := chosen.Default
@@ -417,26 +418,59 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 			}
 			val, err := promptValue(title, ph, def)
 			if err != nil {
-				return err
+				return false, err
 			}
 			writeStr = strings.ReplaceAll(writeStr, "{"+ph+"}", val)
 		}
 
+		// 파일 반영(실질 변경이 있을 때만).
 		abs := start + curPos
-		newContent := content[:abs] + writeStr + content[abs+curLen:]
-		if newContent == content {
-			continue // 실질 변경 없음
+		if newContent := content[:abs] + writeStr + content[abs+curLen:]; newContent != content {
+			info, err := os.Stat(path)
+			if err != nil {
+				return false, fmt.Errorf("switch %q stat 실패: %w", sw.Name, err)
+			}
+			if err := os.WriteFile(path, []byte(newContent), info.Mode().Perm()); err != nil {
+				return false, fmt.Errorf("switch %q 쓰기 실패: %w", sw.Name, err)
+			}
+			fmt.Fprintln(w, output.Green("✓"), title+" →", chosen.Label)
 		}
-		info, err := os.Stat(path)
-		if err != nil {
-			return fmt.Errorf("switch %q stat 실패: %w", sw.Name, err)
+
+		// 로컬 포트를 가리키면 실제로 떠있는지 확인하고, 안 떠있으면 계속할지 묻는다.
+		if port, down := localPortDown(writeStr); down {
+			fmt.Fprintln(w, output.Yellow("⚠"),
+				fmt.Sprintf("localhost:%d 에 떠있는 백엔드가 없습니다 — 먼저 실행하세요", port))
+			cont := false
+			if err := huh.NewConfirm().
+				Title(fmt.Sprintf("백엔드(localhost:%d) 없이 계속할까요?", port)).
+				Affirmative("계속").
+				Negative("중단").
+				Value(&cont).
+				Run(); err != nil {
+				return false, err
+			}
+			if !cont {
+				return false, nil
+			}
 		}
-		if err := os.WriteFile(path, []byte(newContent), info.Mode().Perm()); err != nil {
-			return fmt.Errorf("switch %q 쓰기 실패: %w", sw.Name, err)
-		}
-		fmt.Fprintln(w, output.Green("✓"), title+" →", chosen.Label)
 	}
-	return nil
+	return true, nil
+}
+
+var reLocalPort = regexp.MustCompile(`localhost:(\d+)`)
+
+// localPortDown 은 value 가 localhost:<port> 를 가리킬 때 그 포트가 LISTEN 중이
+// 아니면 (port, true) 를 반환한다. 그 외에는 (0, false).
+func localPortDown(value string) (int, bool) {
+	m := reLocalPort.FindStringSubmatch(value)
+	if m == nil {
+		return 0, false
+	}
+	port, _ := strconv.Atoi(m[1])
+	if st := run.InspectPorts([]int{port}); len(st) > 0 && !st[0].InUse {
+		return port, true
+	}
+	return 0, false
 }
 
 var rePlaceholder = regexp.MustCompile(`\{(\w+)\}`)
