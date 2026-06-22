@@ -232,7 +232,7 @@ func chooseMode(fg, bg, split, isTTY bool, procNames []string) (runMode, error) 
 	// jargon(proc) 없이, Ctrl+C 안내는 메뉴 설명에서 한 번만.
 	var choice string
 	if len(procNames) > 1 {
-		mergedLabel := fmt.Sprintf("포그라운드 · 한 화면에 로그 합쳐 보기 (%s)", strings.Join(procNames, " + "))
+		mergedLabel := fmt.Sprintf("포그라운드 · 통합 TUI 로 합쳐 보기 (%s)", strings.Join(procNames, " + "))
 		// 분할 옵션은 이 터미널이 실제로 할 수 있는 방식(패널/새 창)으로 문구를
 		// 바꾸고, 분할 자체가 불가하면 메뉴에서 아예 뺀다.
 		opts := []huh.Option[string]{huh.NewOption(mergedLabel, "fg")}
@@ -242,7 +242,7 @@ func chooseMode(fg, bg, split, isTTY bool, procNames []string) (runMode, error) 
 		opts = append(opts, huh.NewOption("백그라운드 · 로그는 파일로 남기고 바로 복귀", "bg"))
 		if err := huh.NewSelect[string]().
 			Title("어떻게 실행할까요?").
-			Description("포그라운드는 Ctrl+C 로 종료합니다.").
+			Description("통합 TUI 는 q, 그 외 포그라운드는 Ctrl+C 로 종료합니다.").
 			Options(opts...).
 			Value(&choice).
 			Run(); err != nil {
