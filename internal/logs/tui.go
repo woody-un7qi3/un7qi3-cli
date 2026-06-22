@@ -47,6 +47,7 @@ type model struct {
 	app          string
 	env          string
 	userScrolled bool
+	discarded    int // 링버퍼 상한 초과로 앞에서 폐기된 누적 줄 수
 }
 
 func newModel(insts []Instance, initialFilter, app, env string) model {
@@ -74,7 +75,9 @@ func (m *model) refresh() {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case logMsg:
-		m.buf = appendBuf(m.buf, LogLine(msg))
+		var dropped int
+		m.buf, dropped = appendBuf(m.buf, LogLine(msg))
+		m.discarded += dropped
 		m.refresh()
 		if !m.paused && !m.userScrolled && m.ready {
 			m.vp.GotoBottom()
@@ -186,6 +189,12 @@ func (m model) View() string {
 	} else {
 		hints := output.Dim("space=일시정지  1-9=인스턴스  /=필터  g/G=처음/끝  q=종료")
 		var parts []string
+		// 링버퍼 상한 초과로 오래된 줄이 잘렸음을 알린다 — 사용자가 "처음"(g)으로
+		// 가도 더 앞이 안 보이는 이유를 설명한다. 빨강으로 잘림을 분명히 한다.
+		if m.discarded > 0 {
+			parts = append(parts, statusStyle(true).Render(
+				fmt.Sprintf("%d개 오래된 줄 생략됨", m.discarded)))
+		}
 		// 적용 중인 인스턴스 솔로를 그 인스턴스 색으로 상시 표시.
 		if m.solo != 0 {
 			label := fmt.Sprintf("#%d", m.solo)
@@ -257,11 +266,13 @@ func viewContent(buf []LogLine, filter string, solo int) string {
 	return b.String()
 }
 
-// appendBuf 는 링버퍼에 추가하되 maxBuf 를 넘으면 앞에서 버린다.
-func appendBuf(buf []LogLine, ln LogLine) []LogLine {
+// appendBuf 는 링버퍼에 추가하되 maxBuf 를 넘으면 앞에서 버린다. 이번 호출에서
+// 앞쪽에서 폐기된 줄 수를 함께 반환해 호출부가 누적 추적·가시화할 수 있게 한다.
+func appendBuf(buf []LogLine, ln LogLine) (out []LogLine, discarded int) {
 	buf = append(buf, ln)
 	if len(buf) > maxBuf {
-		buf = buf[len(buf)-maxBuf:]
+		discarded = len(buf) - maxBuf
+		buf = buf[discarded:]
 	}
-	return buf
+	return buf, discarded
 }

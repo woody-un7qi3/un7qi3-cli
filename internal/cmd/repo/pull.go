@@ -47,7 +47,7 @@ func newPullCmd() *cobra.Command {
 		output.Desc("매핑이 없는 레포는 defaults(") + output.Yellow("[main]") + output.Desc(")가 적용됩니다."),
 		output.Desc("워킹 트리가 더티면 stash/skip/abort 중 선택할 수 있습니다."),
 		"",
-		output.Desc(output.Yellow("--reset")+" 은 각 브랜치를 원격 상태로 강제 동기화합니다 (파괴적):"),
+		output.Desc(output.Yellow("--reset") + " 은 각 브랜치를 원격 상태로 강제 동기화합니다 (파괴적):"),
 		output.Desc("  · ") + output.Cyan("git reset --hard <remote>/<branch>") + output.Desc(" — 로컬 커밋 + 추적 변경 모두 버림"),
 		output.Desc("  · ") + output.Cyan("git clean -fd") + output.Desc(" — untracked 파일/디렉토리 삭제 (gitignored는 보존)"),
 		output.Desc("  · 실행 전 확인 prompt. ") + output.Yellow("--yes") + output.Desc(" 로 스킵 (스크립트/CI용)"),
@@ -146,12 +146,12 @@ func resolvePullTargets(cmd *cobra.Command, reposDir, team string, all bool) ([]
 
 	candidates := local
 	if team != "" {
-		if s := authpkg.GhStatus(); !s.OK {
+		if s := authpkg.GhStatus(cmd.Context()); !s.OK {
 			return nil, &authpkg.RequiredError{
 				Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 			}
 		}
-		topicRepos, err := fetchOrgRepos(200, team)
+		topicRepos, err := fetchOrgRepos(cmd.Context(), 200, team)
 		if err != nil {
 			return nil, err
 		}
@@ -301,7 +301,7 @@ func branchSHA(dir, ref string) (string, error) {
 // printBranchResult renders one branch's pull result in compact form.
 //   - up-to-date  →  "  ✓ <branch>  최신 — <hash> <subj> (<author>, <when>)"
 //   - new commits →  "  ✓ <branch>  N개 새 커밋  before..after"
-//                    followed by oneline log entries indented further.
+//     followed by oneline log entries indented further.
 func printBranchResult(w interface{ Write(p []byte) (int, error) }, dir, branch, before, after string) {
 	const maxLog = 5
 	if before == "" || after == "" || before == after {
@@ -468,7 +468,6 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 		return nil
 	}
 
-	// fetch 한 번.
 	if _, err := uqexec.RunIn(dir, "git", "fetch", remote); err != nil {
 		return fmt.Errorf("git fetch %s 실패: %w", remote, err)
 	}
@@ -519,7 +518,6 @@ func pullBranches(cmd *cobra.Command, dir, name string, branches []string, reset
 		succeeded = append(succeeded, br)
 	}
 
-	// 원래 브랜치로 복귀.
 	if _, err := uqexec.RunIn(dir, "git", "checkout", original); err != nil {
 		fmt.Fprintf(w, "%s 원래 브랜치(%s)로 복귀 실패: %v\n", output.Red("✗"), original, err)
 	}

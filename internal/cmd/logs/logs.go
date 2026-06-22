@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/logs"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
@@ -21,7 +22,9 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/run"
 )
 
-var (
+// logsOptions 는 `uq logs` 의 플래그 값을 담는다. NewCmd 의 클로저에서 생성·바인딩해
+// RunE 로 전달하므로 패키지 전역 상태가 없고, 명령을 여러 번 구성해도 격리된다.
+type logsOptions struct {
 	instanceNum int
 	grep        string
 	noFollow    bool
@@ -29,10 +32,11 @@ var (
 	dryRun      bool
 	linesN      int
 	plain       bool
-)
+}
 
 // NewCmd returns the `uq logs` command.
 func NewCmd() *cobra.Command {
+	opts := &logsOptions{}
 	long := strings.Join(append([]string{
 		output.Desc("Elastic Beanstalk 다중 인스턴스의 로그를 멀티플렉스로 스트리밍합니다."),
 		"",
@@ -53,16 +57,16 @@ func NewCmd() *cobra.Command {
 		Long:  long,
 		Args:  cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runLogs(cmd, args[0], args[1:])
+			return runLogs(cmd, opts, args[0], args[1:])
 		},
 	}
-	cmd.Flags().IntVar(&instanceNum, "instance", 0, "1-base 인스턴스 번호로 한정 (0=전체)")
-	cmd.Flags().IntVar(&linesN, "lines", 100, "초기 백로그 줄 수 (--grep 와 함께 늘리면 과거 로그 검색)")
-	cmd.Flags().StringVar(&grep, "grep", "", "정규식으로 라인 필터")
-	cmd.Flags().BoolVar(&noFollow, "no-follow", false, "follow 없이 최근 N줄만 출력하고 종료")
-	cmd.Flags().BoolVar(&split, "split", false, "인스턴스별 패널 분리 (cmux/iterm2)")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "해석된 app/region/환경/명령만 출력")
-	cmd.Flags().BoolVar(&plain, "plain", false, "TTY 라도 평문 스트리밍 강제 (TUI 끄기)")
+	cmd.Flags().IntVar(&opts.instanceNum, "instance", 0, "1-base 인스턴스 번호로 한정 (0=전체)")
+	cmd.Flags().IntVar(&opts.linesN, "lines", 100, "초기 백로그 줄 수 (--grep 와 함께 늘리면 과거 로그 검색)")
+	cmd.Flags().StringVar(&opts.grep, "grep", "", "정규식으로 라인 필터")
+	cmd.Flags().BoolVar(&opts.noFollow, "no-follow", false, "follow 없이 최근 N줄만 출력하고 종료")
+	cmd.Flags().BoolVar(&opts.split, "split", false, "인스턴스별 패널 분리 (cmux/iterm2)")
+	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "해석된 app/region/환경/명령만 출력")
+	cmd.Flags().BoolVar(&opts.plain, "plain", false, "TTY 라도 평문 스트리밍 강제 (TUI 끄기)")
 	cmd.MarkFlagsMutuallyExclusive("split", "no-follow")
 	return cmd
 }
@@ -95,7 +99,7 @@ func greenRepos(repos []string) string {
 	return strings.Join(greened, ", ")
 }
 
-func runLogs(cmd *cobra.Command, repo string, filters []string) error {
+func runLogs(cmd *cobra.Command, opts *logsOptions, repo string, filters []string) error {
 	w := cmd.OutOrStderr()
 
 	// 1. allowlist 확인
@@ -105,16 +109,20 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	}
 	lc, ok := cfg.LogsFor(repo)
 	if !ok {
+		// 사용자용 메시지(글리프·사용 가능한 대상 목록)는 여기서 직접 찍어 형식을
+		// 보존한다. cobra 가 "Error: ..." 를 덧붙이지 않도록 SilenceErrors 를 켜고,
+		// exit code 결정은 main 의 clierr.Classify(=1) 에 맡긴다.
 		fmt.Fprintln(w, output.Red("✗"), repo, "는 logs 미등록입니다. repos.yml 의 logs: 에 추가하세요.")
 		if repos := cfg.LogsRepos(); len(repos) > 0 {
 			fmt.Fprintln(w, "  사용 가능한 대상:", greenRepos(repos))
 		}
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.RepoNotFoundError{Name: repo}
 	}
 
 	// 2. 외부 도구 사전확인 (exit 4) — aws 는 발견 단계 필수, eb 는 스트리밍에만
 	//    쓰여 dry-run 이면 면제.
-	if err := checkLogsPreconditions(authpkg.AwsStatus(), dryRun, uqexec.LookPath("eb")); err != nil {
+	if err := checkLogsPreconditions(authpkg.AwsStatus(cmd.Context()), opts.dryRun, uqexec.LookPath("eb")); err != nil {
 		return err
 	}
 
@@ -132,13 +140,15 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 			}
 		} else {
 			fmt.Fprintln(w, output.Red("✗"), "국가를 특정하세요(예:", strings.Join(codes, "/"), ")")
-			os.Exit(1)
+			cmd.SilenceErrors = true
+			return clierr.PreconditionError{Msg: "국가 미지정"}
 		}
 	}
 	tgt0, ok := lc.Countries[country]
 	if !ok {
 		fmt.Fprintln(w, output.Red("✗"), "알 수 없는 국가:", country)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: "알 수 없는 국가: " + country}
 	}
 	tgt := eblogs.Target{Country: country, App: tgt0.App, Region: tgt0.Region}
 
@@ -147,13 +157,15 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	envs, err := src.Environments(tgt)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
 	matched := eblogs.MatchEnvs(envs, envFilters)
 	env, err := resolveEnv(matched, isTTY)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
 
 	// 4-1. SSH 키 해석 — eb ssh --custom 으로 accept-new 를 주입해 호스트 키 프롬프트를
@@ -167,38 +179,40 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	insts, err := src.Instances(tgt, env)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
-	if instanceNum > 0 {
-		insts = filterInstance(insts, instanceNum)
+	if opts.instanceNum > 0 {
+		insts = filterInstance(insts, opts.instanceNum)
 	}
 	if len(insts) == 0 {
 		fmt.Fprintln(w, output.Red("✗"), "대상 인스턴스가 없습니다")
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: "대상 인스턴스가 없습니다"}
 	}
 
 	// 6. dry-run / split / merged
-	lines := linesN
+	lines := opts.linesN
 	if lines < 1 {
 		lines = 1
 	}
-	if dryRun {
-		return printLogsPlan(w, tgt, env, insts, src, !noFollow, lines, grep)
+	if opts.dryRun {
+		return printLogsPlan(w, tgt, env, insts, src, !opts.noFollow, lines, opts.grep)
 	}
-	if split {
+	if opts.split {
 		mux := run.DetectMultiplexer()
 		if eblogs.SplitSupported(mux) {
-			return runLogsSplit(w, src, tgt, env, insts, mux, !noFollow, lines, grep)
+			return runLogsSplit(w, src, tgt, env, insts, mux, !opts.noFollow, lines, opts.grep)
 		}
 		fmt.Fprintln(w, output.Yellow("⚠"), "현재 터미널은 분할 미지원 — merged 로 진행")
 	}
-	if isStdoutTTY() && !noFollow && !plain {
+	if isStdoutTTY() && !opts.noFollow && !opts.plain {
 		tctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
-		ch := eblogs.StreamLines(tctx, src, tgt, env, insts, true, lines, grep)
-		return eblogs.RunTUI(tctx, ch, insts, grep, tgt.App, env)
+		ch := eblogs.StreamLines(tctx, src, tgt, env, insts, true, lines, opts.grep)
+		return eblogs.RunTUI(tctx, ch, insts, opts.grep, tgt.App, env)
 	}
-	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !noFollow, lines, grep)
+	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !opts.noFollow, lines, opts.grep)
 }
 
 // checkLogsPreconditions 는 logs 실행 전 외부 도구 상태를 검증한다.

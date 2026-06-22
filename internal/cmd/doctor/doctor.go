@@ -2,6 +2,7 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,13 +11,53 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
+
+// runner executes the version/identity probes. It defaults to the production
+// OSRunner but can be swapped in tests. exec.LookPath stays a direct call —
+// it resolves a path rather than running a command, so it is outside the
+// Runner contract.
+var runner uqexec.Runner = uqexec.Default()
+
+// probeTimeout bounds a single external probe (version banner, daemon ping,
+// per-repo git config). Without it a wedged tool or unresponsive daemon would
+// make `uq doctor` hang forever; with it the offending check fails and the
+// rest of the report still renders. 10s is generous for local CLIs yet short
+// enough to keep the command responsive.
+const probeTimeout = 10 * time.Second
+
+// probeCombined runs name+args under a per-command timeout and returns stdout
+// and stderr merged, matching the old exec.Command(...).CombinedOutput()
+// behavior the checks rely on (many tools, e.g. java -version, print their
+// version banner to stderr). ctx is the command-scoped context so Ctrl+C and
+// the timeout both propagate to the child process.
+func probeCombined(ctx context.Context, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	stdout, stderr, err := runner.Run(ctx, name, args...)
+	return stdout + stderr, err
+}
+
+// probeStdout runs name+args under a per-command timeout and returns stdout
+// only, swallowing the error — used for `git config --get` probes where a
+// missing key exits non-zero and we want that reported as an empty value, not
+// a hard failure.
+func probeStdout(ctx context.Context, name string, args ...string) string {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	stdout, _, _ := runner.Run(ctx, name, args...)
+	return stdout
+}
 
 // Role names. A check with no Roles is "common" — shown to everyone.
 const (
@@ -58,7 +99,10 @@ type Check struct {
 	// sub-line under the tool's main row so users can decide whether they
 	// actually need it. Called each time doctor runs; expected to be quick.
 	Usage func() string
-	Run   func() (ok bool, version, detail, path string)
+	// Run probes the tool. ctx is the command-scoped context — checks pass it
+	// to probeCombined/probeStdout so each external invocation is bounded by
+	// probeTimeout and cancelled on Ctrl+C.
+	Run func(ctx context.Context) (ok bool, version, detail, path string)
 }
 
 // Result is the JSON-friendly outcome of a check.
@@ -117,7 +161,7 @@ func NewCmd() *cobra.Command {
 			var sum Summary
 
 			for _, c := range checks {
-				ok, ver, detail, path := c.Run()
+				ok, ver, detail, path := c.Run(cmd.Context())
 				r := Result{
 					Name:     c.Name,
 					OK:       ok,
@@ -153,7 +197,11 @@ func NewCmd() *cobra.Command {
 			}
 
 			if sum.Failed > 0 {
-				os.Exit(1)
+				// 리포트 자체가 이미 사람/JSON 으로 출력됐다. 추가 메시지 없이
+				// 실패를 알리는 런타임 에러만 반환하고, cobra 의 "Error: ..." 는
+				// 막는다(exit code 는 main 의 Classify=1).
+				cmd.SilenceErrors = true
+				return clierr.PreconditionError{Msg: fmt.Sprintf("%d개 점검 실패", sum.Failed)}
 			}
 			return nil
 		},
@@ -330,28 +378,20 @@ func printHuman(cmd *cobra.Command, results []Result, sum Summary) {
 	}
 }
 
-// visibleLen counts the terminal width of s.
+// ansiEscapeRe matches SGR/CSI escape sequences (color, bold, dim, …) so we
+// can strip them before measuring display width — an escape occupies bytes but
+// zero terminal columns.
+var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// visibleLen counts the terminal width of s after stripping ANSI escapes.
 //
-// ASCII = 1 col per rune. Hangul (the only wide script we put in the table)
-// = 2 cols per rune. Everything else is treated as 1 col — good enough for
-// our cells, which are otherwise pure ASCII (versions, paths, tool names).
-//
-// Doctor's table cells never contain ANSI escape codes (those only appear
-// in the dim/blue-wrapped tail column, which is rendered last and needs no
-// alignment), so we don't strip escapes here.
+// runewidth handles every script the table might carry: ASCII = 1 col, Hangul
+// = 2 cols (preserving the previous hand-rolled behavior the column alignment
+// depends on), and East-Asian wide glyphs / emoji / CJK = 2 cols (which the
+// old rune-range switch miscounted as 1). Narrow glyphs like the status marks
+// (✓ ✗) stay 1 col, matching the prior default branch.
 func visibleLen(s string) int {
-	n := 0
-	for _, r := range s {
-		switch {
-		case r >= 0xAC00 && r <= 0xD7A3: // Hangul syllables
-			n += 2
-		case r >= 0x1100 && r <= 0x11FF: // Hangul Jamo
-			n += 2
-		default:
-			n += 1
-		}
-	}
-	return n
+	return runewidth.StringWidth(ansiEscapeRe.ReplaceAllString(s, ""))
 }
 
 // formatSubLines turns a multi-line detail string into a visually aligned
@@ -554,14 +594,14 @@ func buildChecks() []Check {
 // On the local-fallback path we cannot reliably invoke `ng version`
 // (Angular CLI errors out when invoked outside its workspace), so we read
 // the version from the symlinked package's package.json instead.
-func ngCheck() (bool, string, string, string) {
+func ngCheck(ctx context.Context) (bool, string, string, string) {
 	if path, err := exec.LookPath("ng"); err == nil {
-		out, err := exec.Command("ng", "version").CombinedOutput()
+		out, err := probeCombined(ctx, "ng", "version")
 		if err != nil {
-			return false, "", strings.TrimSpace(string(out)), path
+			return false, "", strings.TrimSpace(out), path
 		}
 		re := regexp.MustCompile(`Angular CLI:\s*(\S+)`)
-		m := re.FindStringSubmatch(string(out))
+		m := re.FindStringSubmatch(out)
 		if len(m) >= 2 {
 			return true, m[1], "", path
 		}
@@ -574,9 +614,9 @@ func ngCheck() (bool, string, string, string) {
 // failed global probe, it falls back to checking `~/un7qi3/.../node_modules/
 // .bin/<binName>`. Use this for npm-distributed CLIs where local install is
 // the norm (Angular CLI, Ionic CLI, etc.).
-func withLocalFallback(run func() (bool, string, string, string), binName string) func() (bool, string, string, string) {
-	return func() (bool, string, string, string) {
-		ok, ver, detail, path := run()
+func withLocalFallback(run func(context.Context) (bool, string, string, string), binName string) func(context.Context) (bool, string, string, string) {
+	return func(ctx context.Context) (bool, string, string, string) {
+		ok, ver, detail, path := run(ctx)
 		if ok {
 			return ok, ver, detail, path
 		}
@@ -617,22 +657,22 @@ func localBinFallback(binName string) (bool, string, string, string) {
 // exit. The path returned is exec.LookPath's resolution of bin (i.e. the
 // absolute binary location actually on PATH). If the binary is missing we
 // report ok=false.
-func versionCheck(bin string, args []string, pattern string) func() (bool, string, string, string) {
+func versionCheck(bin string, args []string, pattern string) func(context.Context) (bool, string, string, string) {
 	re := regexp.MustCompile(pattern)
-	return func() (bool, string, string, string) {
+	return func(ctx context.Context) (bool, string, string, string) {
 		path, err := exec.LookPath(bin)
 		if err != nil {
 			return false, "", "", ""
 		}
-		out, err := exec.Command(bin, args...).CombinedOutput()
+		out, err := probeCombined(ctx, bin, args...)
 		if err != nil {
-			return false, "", strings.TrimSpace(string(out)), path
+			return false, "", strings.TrimSpace(out), path
 		}
-		m := re.FindStringSubmatch(string(out))
+		m := re.FindStringSubmatch(out)
 		if len(m) >= 2 {
 			return true, m[1], "", path
 		}
-		return true, strings.TrimSpace(string(out)), "", path
+		return true, strings.TrimSpace(out), "", path
 	}
 }
 
@@ -653,23 +693,23 @@ func versionCheck(bin string, args []string, pattern string) func() (bool, strin
 //	~/un7qi3: <email1> × N  (repo, repo, ...)
 //	~/un7qi3: <email2> × M  (repo, ...)
 //	⚠ ~/un7qi3 레포 K개가 global 이메일 사용 중
-func gitCheck() (bool, string, string, string) {
+func gitCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("git")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("git", "--version").CombinedOutput()
+	out, err := probeCombined(ctx, "git", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`git version (\S+)`)
 	ver := ""
-	if m := re.FindStringSubmatch(string(out)); len(m) >= 2 {
+	if m := re.FindStringSubmatch(out); len(m) >= 2 {
 		ver = m[1]
 	}
 
-	globalEmail := strings.TrimSpace(stringOf(exec.Command("git", "config", "--global", "--get", "user.email").Output()))
-	globalName := strings.TrimSpace(stringOf(exec.Command("git", "config", "--global", "--get", "user.name").Output()))
+	globalEmail := strings.TrimSpace(probeStdout(ctx, "git", "config", "--global", "--get", "user.email"))
+	globalName := strings.TrimSpace(probeStdout(ctx, "git", "config", "--global", "--get", "user.name"))
 
 	var head string
 	switch {
@@ -686,7 +726,7 @@ func gitCheck() (bool, string, string, string) {
 	lines := []string{head}
 	reposDir, _ := config.ReposDir()
 	if reposDir != "" {
-		overrides, usingGlobal := scanUn7qi3LocalEmails(reposDir, globalEmail)
+		overrides, usingGlobal := scanUn7qi3LocalEmails(ctx, reposDir, globalEmail)
 		// Group by email so 같은 override 가 모이고 한 줄에 요약된다.
 		byEmail := map[string][]string{}
 		for repo, email := range overrides {
@@ -728,7 +768,7 @@ func gitCheck() (bool, string, string, string) {
 // Repos whose effective email matches the bare global (i.e. no override at
 // any layer) are reported in usingGlobal so the caller can warn. The rest
 // are returned in overrides keyed by repo name.
-func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[string]string, usingGlobal []string) {
+func scanUn7qi3LocalEmails(ctx context.Context, workspaceDir, globalEmail string) (overrides map[string]string, usingGlobal []string) {
 	overrides = map[string]string{}
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
@@ -759,11 +799,16 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			out, err := exec.Command("git", "-C", repoDir, "config", "--get", "user.email").Output()
+			// Per-repo timeout so a single wedged git (e.g. a repo on a stalled
+			// network filesystem) can't hang the whole scan — the slow repo
+			// drops out, the rest still report.
+			cctx, cancel := context.WithTimeout(ctx, probeTimeout)
+			defer cancel()
+			out, _, err := runner.Run(cctx, "git", "-C", repoDir, "config", "--get", "user.email")
 			mu.Lock()
 			results = append(results, result{
 				name:      name,
-				effective: strings.TrimSpace(string(out)),
+				effective: strings.TrimSpace(out),
 				ok:        err == nil,
 			})
 			mu.Unlock()
@@ -781,33 +826,26 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 	return overrides, usingGlobal
 }
 
-// stringOf swallows the error from cmd.Output() so we can chain trim — git
-// config returns exit 1 when a key is unset, and we want "missing" reported
-// as empty string, not as a hard failure.
-func stringOf(b []byte, _ error) string {
-	return string(b)
-}
-
 // ghCheck delegates the auth-status portion to internal/auth.GhStatus so that
 // `uq doctor` and `uq auth status` share a single source of truth.
-func ghCheck() (bool, string, string, string) {
+func ghCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("gh")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("gh", "--version").CombinedOutput()
+	out, err := probeCombined(ctx, "gh", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`gh version (\S+)`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	ver := ""
 	if len(m) >= 2 {
 		ver = m[1]
 	}
 
-	// Delegate auth probe.
-	s := authpkg.GhStatus()
+	// Delegate auth probe (GhStatus applies its own status-probe timeout).
+	s := authpkg.GhStatus(ctx)
 	if !s.OK {
 		return true, ver, "인증 안 됨", path
 	}
@@ -819,7 +857,9 @@ func ghCheck() (bool, string, string, string) {
 
 // sdkmanCheck probes ~/.sdkman because sdkman is a shell function, not a
 // binary on PATH. The reported path is the sdkman home directory.
-func sdkmanCheck() (bool, string, string, string) {
+// sdkmanCheck takes ctx to satisfy the Check.Run contract but runs no external
+// command — it only stats ~/.sdkman — so nothing to time out.
+func sdkmanCheck(_ context.Context) (bool, string, string, string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return false, "", err.Error(), ""
@@ -836,59 +876,63 @@ func sdkmanCheck() (bool, string, string, string) {
 	return true, "설치됨", "", sdkHome
 }
 
-func javaCheck() (bool, string, string, string) {
+func javaCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("java")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("java", "-version").CombinedOutput()
+	out, err := probeCombined(ctx, "java", "-version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`version "([^"]+)"`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	if len(m) >= 2 {
 		return true, m[1], "", path
 	}
-	return true, strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]), "", path
+	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
-func gcloudCheck() (bool, string, string, string) {
+func gcloudCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("gcloud")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("gcloud", "--version").CombinedOutput()
+	out, err := probeCombined(ctx, "gcloud", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`Google Cloud SDK (\S+)`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	if len(m) >= 2 {
 		return true, m[1], "", path
 	}
-	return true, strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]), "", path
+	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
-func dockerCheck() (bool, string, string, string) {
+func dockerCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("docker")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("docker", "--version").CombinedOutput()
+	out, err := probeCombined(ctx, "docker", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`Docker version (\S+?),`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	ver := ""
 	if len(m) >= 2 {
 		ver = strings.TrimSuffix(m[1], ",")
 	} else {
-		ver = strings.TrimSpace(string(out))
+		ver = strings.TrimSpace(out)
 	}
-	// Probe daemon
-	if err := exec.Command("docker", "info").Run(); err != nil {
+	// Probe daemon. `docker info` blocks until it can reach the daemon socket,
+	// so an installed-but-unresponsive Docker would hang doctor forever without
+	// a deadline — bound it like every other probe.
+	dctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	if _, _, err := runner.Run(dctx, "docker", "info"); err != nil {
 		return true, ver, "데몬 실행 안 됨", path
 	}
 	return true, ver, "", path

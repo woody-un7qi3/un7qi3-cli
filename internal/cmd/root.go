@@ -2,6 +2,7 @@
 package cmd
 
 import (
+	"context"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -194,9 +195,9 @@ func newCompletionCmd() *cobra.Command {
 		output.HelpExample("uq completion fish > ~/.config/fish/completions/uq.fish", "fish"),
 	}, "\n")
 	cmd := &cobra.Command{
-		Use:   "completion [bash|zsh|fish|powershell]",
-		Short: "지정한 셸의 자동완성 스크립트 생성",
-		Long:  long,
+		Use:                   "completion [bash|zsh|fish|powershell]",
+		Short:                 "지정한 셸의 자동완성 스크립트 생성",
+		Long:                  long,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -276,10 +277,12 @@ func renderCommandList(cmds []*cobra.Command) string {
 	return b.String()
 }
 
-// Execute runs the root command.
-func Execute() error {
+// Execute runs the root command with ctx as the root context. ctx carries
+// signal-driven cancellation (Ctrl+C/SIGTERM) from main, so every RunE sees it
+// via cmd.Context() and can propagate it to long-running work.
+func Execute(ctx context.Context) error {
 	helpOnEmptyArgs(rootCmd)
-	return rootCmd.Execute()
+	return rootCmd.ExecuteContext(ctx)
 }
 
 // helpOnEmptyArgs walks the command tree and softens every command that would

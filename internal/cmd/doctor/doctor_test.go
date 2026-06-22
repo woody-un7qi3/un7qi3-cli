@@ -1,8 +1,14 @@
 package doctor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 )
 
 func TestValidateRoles(t *testing.T) {
@@ -136,6 +142,59 @@ func TestBuildChecks_EBOptionalWithBrewFix(t *testing.T) {
 	}
 }
 
+// deadlineRunner blocks until the context is cancelled and returns the context
+// error — standing in for a wedged `git` whose process exec.CommandContext
+// would have to kill on timeout. It lets us drive the scan's per-repo timeout
+// path deterministically without a real hung process.
+type deadlineRunner struct{}
+
+func (deadlineRunner) Run(ctx context.Context, _ string, _ ...string) (string, string, error) {
+	<-ctx.Done()
+	return "", "", ctx.Err()
+}
+
+// A repo whose `git config` never returns must not hang the whole scan: the
+// per-repo timeout fires, that repo drops out (counted as usingGlobal, i.e.
+// "no readable override"), and scanUn7qi3LocalEmails still returns. Without the
+// timeout this test would block forever. We use a 1ms parent deadline so the
+// per-repo WithTimeout fires immediately rather than waiting the full 10s.
+func TestScanUn7qi3LocalEmails_TimeoutDoesNotHang(t *testing.T) {
+	ws := t.TempDir()
+	repo := filepath.Join(ws, "slowrepo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := runner
+	runner = deadlineRunner{}
+	t.Cleanup(func() { runner = orig })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	var overrides map[string]string
+	var usingGlobal []string
+	go func() {
+		overrides, usingGlobal = scanUn7qi3LocalEmails(ctx, ws, "global@example.com")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("scanUn7qi3LocalEmails hung past the per-repo timeout")
+	}
+
+	if len(overrides) != 0 {
+		t.Errorf("overrides = %v, want empty (slow repo yields no override)", overrides)
+	}
+	if !contains(usingGlobal, "slowrepo") {
+		t.Errorf("usingGlobal = %v, want it to include the timed-out repo", usingGlobal)
+	}
+}
+
+var _ uqexec.Runner = deadlineRunner{}
+
 func findCheck(t *testing.T, name string) Check {
 	t.Helper()
 	for _, c := range buildChecks() {
@@ -161,6 +220,41 @@ func namesOfResults(rs []Result) []string {
 		out[i] = r.Name
 	}
 	return out
+}
+
+// TestVisibleLen pins the terminal-width calculation used for column
+// alignment. ASCII=1 and Hangul=2 are the *existing* behavior that must be
+// preserved (the table relies on Hangul headings like "백엔드" lining up);
+// emoji/CJK/ANSI-mixed are the cases the old hand-rolled width miscounted and
+// runewidth now handles.
+func TestVisibleLen(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"빈 문자열", "", 0},
+		{"ASCII", "git", 3},
+		{"ASCII 기호 포함", "node-v18.0.0", 12},
+		// 행위 보존 핵심: 한글은 기존과 동일하게 음절당 2칸.
+		{"한글 음절", "백엔드", 6},
+		{"한글+ASCII 혼합", "공통 git", 8}, // 공(2)+통(2)+공백(1)+git(3)
+		{"한글 자모", "ㄱㄴㄷ", 6},
+		// 새로 올바르게 계산되는 케이스.
+		{"기타 CJK 한자", "中文", 4},
+		{"이모지", "👀", 2},
+		// 글리프(✓)는 width 1 — 기존 default 분기와 동일하게 보존.
+		{"체크 글리프", "✓ git", 5},
+		// ANSI 이스케이프는 폭 계산 전에 제거된다.
+		{"ANSI 래핑", "\033[34m/usr/bin/git\033[0m", 12},
+		{"ANSI + 한글", "\033[2m백엔드\033[0m", 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := visibleLen(tc.in); got != tc.want {
+				t.Errorf("visibleLen(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
 }
 
 func contains(s []string, want string) bool {

@@ -34,12 +34,12 @@ const (
 // TERM_PROGRAM=ghostty and would be misread as a plain terminal. cmux's own
 // env markers are therefore checked before any TERM_PROGRAM heuristic.
 //
-//	1. tmux     — $TMUX set
-//	2. cmux     — $CMUX_PANEL_ID and $CMUX_SOCKET_PATH set
-//	3. iTerm2   — $TERM_PROGRAM == "iTerm.app"
-//	4. ghostty  — $TERM_PROGRAM == "ghostty" (standalone; cmux already caught above)
-//	5. Terminal — $TERM_PROGRAM == "Apple_Terminal"
-//	6. none     — everything else
+//  1. tmux     — $TMUX set
+//  2. cmux     — $CMUX_PANEL_ID and $CMUX_SOCKET_PATH set
+//  3. iTerm2   — $TERM_PROGRAM == "iTerm.app"
+//  4. ghostty  — $TERM_PROGRAM == "ghostty" (standalone; cmux already caught above)
+//  5. Terminal — $TERM_PROGRAM == "Apple_Terminal"
+//  6. none     — everything else
 func DetectMultiplexer() Multiplexer {
 	if os.Getenv("TMUX") != "" {
 		return MuxTmux

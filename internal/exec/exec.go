@@ -5,12 +5,59 @@ package exec
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	osexec "os/exec"
 	"strings"
 	"sync/atomic"
 )
+
+// Runner abstracts external command execution so consumers (auth probes,
+// doctor checks, ...) can be unit-tested with a fake. It is intentionally
+// small: a single stdout/stderr-capturing call that respects a context.
+//
+// On a non-zero exit the returned error wraps the underlying *exec.ExitError
+// with the "name args: msg" shape Run uses, so callers that surface
+// err.Error() keep an identical message whether they hold a Runner or call
+// the package-level Run helper.
+type Runner interface {
+	Run(ctx context.Context, name string, args ...string) (stdout, stderr string, err error)
+}
+
+// OSRunner is the production Runner. It executes commands via os/exec and
+// reuses the package verbose echo, so injected and direct call paths log
+// identically.
+type OSRunner struct{}
+
+// Run implements Runner using os/exec.CommandContext.
+func (OSRunner) Run(ctx context.Context, name string, args ...string) (stdout, stderr string, err error) {
+	echo(name, args)
+
+	cmd := osexec.CommandContext(ctx, name, args...)
+	var outBuf, errBuf bytes.Buffer
+	cmd.Stdout = &outBuf
+	cmd.Stderr = &errBuf
+	runErr := cmd.Run()
+	stdout, stderr = outBuf.String(), errBuf.String()
+	if runErr != nil {
+		msg := strings.TrimSpace(stderr)
+		if msg == "" {
+			msg = strings.TrimSpace(stdout)
+		}
+		if msg == "" {
+			return stdout, stderr, fmt.Errorf("%s %s: %w", name, strings.Join(args, " "), runErr)
+		}
+		return stdout, stderr, fmt.Errorf("%s %s: %s", name, strings.Join(args, " "), msg)
+	}
+	return stdout, stderr, nil
+}
+
+// defaultRunner is the Runner used by helpers that don't take one explicitly.
+var defaultRunner Runner = OSRunner{}
+
+// Default returns the process-wide production Runner.
+func Default() Runner { return defaultRunner }
 
 // verbose mirrors the root command's --verbose flag. The cmd package sets it
 // from PersistentPreRun so external callers can echo executed commands.

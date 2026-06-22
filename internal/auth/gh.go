@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"strings"
@@ -10,18 +11,33 @@ import (
 
 var ghUserRe = regexp.MustCompile(`(?:Logged in to [^\s]+ (?:as|account) |account )(\S+)`)
 
-// GhStatus probes `gh auth status` and reports authentication state.
-func GhStatus() Status {
-	s := Status{Name: "gh"}
+// GhStatus probes `gh auth status` and reports authentication state using the
+// package default Runner. The binary-presence guard lives here (not in the
+// parse core) so unit tests can drive ghStatus with a fake Runner on hosts
+// where gh isn't installed.
+func GhStatus(ctx context.Context) Status {
 	if !uqexec.LookPath("gh") {
-		s.Error = "gh CLI 설치되지 않음"
-		return s
+		return Status{Name: "gh", Error: "gh CLI 설치되지 않음"}
 	}
+	ctx, cancel := context.WithTimeout(ctx, statusProbeTimeout)
+	defer cancel()
+	return ghStatus(ctx, defaultRunner)
+}
+
+// ghStatus runs the probe through r and parses the result. It assumes gh
+// exists (GhStatus guards that) so it is exercisable with a fake Runner
+// independent of the host PATH.
+func ghStatus(ctx context.Context, r uqexec.Runner) Status {
+	s := Status{Name: "gh"}
 	// gh auth status writes its human report to stderr regardless of exit
-	// code. Use CombinedOutput so we can scan whichever stream gh chose.
-	out, err := uqexec.RunCombined("gh", "auth", "status")
-	text := string(out)
+	// code. Scan whichever stream gh chose by merging stdout and stderr.
+	stdout, stderr, err := r.Run(ctx, "gh", "auth", "status")
+	text := stdout + stderr
 	if err != nil {
+		if msg, ok := probeTimeoutMsg(ctx, "gh", err); ok {
+			s.Error = msg
+			return s
+		}
 		// Unauthenticated → non-zero exit; message is in combined output.
 		s.Error = trimMsg(text)
 		return s
@@ -40,8 +56,8 @@ func GhStatus() Status {
 
 // GhLogin runs `gh auth login` interactively unless already authenticated.
 // On a fresh login it also runs `gh auth setup-git`.
-func GhLogin() error {
-	s := GhStatus()
+func GhLogin(ctx context.Context) error {
+	s := GhStatus(ctx)
 	if s.OK {
 		who := s.User
 		if who == "" {

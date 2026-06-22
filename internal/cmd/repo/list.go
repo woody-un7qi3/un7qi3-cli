@@ -1,7 +1,9 @@
 package repo
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -17,6 +19,17 @@ import (
 
 const ghOrg = "un7qi3inc"
 
+// runner executes the org-repo metadata probe. It defaults to the production
+// OSRunner but can be swapped in tests. exec.RunInteractive (실제 클론) 과
+// uqexec.RunIn (git fetch/checkout) 은 Runner 계약 밖이라 직접 호출을 유지한다.
+var runner uqexec.Runner = uqexec.Default()
+
+// repoFetchTimeout bounds a single `gh repo list` metadata call. 네트워크가
+// 멈추면 fetchOrgRepos 가 무한 hang 하는데, 이 타임아웃이 그 경우 호출을
+// 끊어 명확한 에러로 되돌린다. gh 가 GitHub API 를 거치는 호출이라 로컬
+// status probe(10s)보다 약간 여유를 둔 15s.
+const repoFetchTimeout = 15 * time.Second
+
 type ghRepo struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -28,7 +41,10 @@ type ghRepo struct {
 // fetchOrgRepos는 gh repo list 로 조직 레포 전체를 조회한다.
 // topic이 비어 있지 않으면 --topic 으로 후보를 좁힌다.
 // archived 필터링은 호출자가 담당한다.
-func fetchOrgRepos(limit int, topic string) ([]ghRepo, error) {
+//
+// 순수 네트워크 메타데이터 호출이라 repoFetchTimeout 으로 상한을 둔다.
+// 네트워크가 멈춰도 무한 hang 하지 않고 타임아웃 에러로 되돌아온다.
+func fetchOrgRepos(ctx context.Context, limit int, topic string) ([]ghRepo, error) {
 	ghArgs := []string{"repo", "list", ghOrg,
 		"--json", "name,description,visibility,updatedAt,isArchived",
 		"--limit", strconv.Itoa(limit),
@@ -36,12 +52,17 @@ func fetchOrgRepos(limit int, topic string) ([]ghRepo, error) {
 	if topic != "" {
 		ghArgs = append(ghArgs, "--topic", topic)
 	}
-	out, err := uqexec.Run("gh", ghArgs...)
+	ctx, cancel := context.WithTimeout(ctx, repoFetchTimeout)
+	defer cancel()
+	out, _, err := runner.Run(ctx, "gh", ghArgs...)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return nil, fmt.Errorf("gh repo list 타임아웃 (%s 초과): %w", repoFetchTimeout, err)
+		}
 		return nil, err
 	}
 	var repos []ghRepo
-	if err := json.Unmarshal(out, &repos); err != nil {
+	if err := json.Unmarshal([]byte(out), &repos); err != nil {
 		return nil, fmt.Errorf("gh 응답 파싱 실패: %w", err)
 	}
 	return repos, nil
@@ -75,13 +96,13 @@ func newListCmd() *cobra.Command {
 			}
 
 			// gh 인증 사전 확인 — 안 되어 있으면 즉시 exit 4.
-			if s := authpkg.GhStatus(); !s.OK {
+			if s := authpkg.GhStatus(cmd.Context()); !s.OK {
 				return &authpkg.RequiredError{
 					Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 				}
 			}
 
-			repos, err := fetchOrgRepos(limit, "")
+			repos, err := fetchOrgRepos(cmd.Context(), limit, "")
 			if err != nil {
 				return err
 			}

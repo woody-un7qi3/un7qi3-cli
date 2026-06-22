@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
 
@@ -42,11 +43,11 @@ func newLoginCmd() *cobra.Command {
 				var lerr error
 				switch name {
 				case "gh":
-					lerr = authpkg.GhLogin()
+					lerr = authpkg.GhLogin(cmd.Context())
 				case "aws":
-					lerr = authpkg.AwsLogin()
+					lerr = authpkg.AwsLogin(cmd.Context())
 				case "gcloud":
-					lerr = authpkg.GcloudLogin()
+					lerr = authpkg.GcloudLogin(cmd.Context())
 				}
 				if lerr != nil {
 					fmt.Fprintf(os.Stderr, "%s: %v\n", name, lerr)
@@ -56,8 +57,11 @@ func newLoginCmd() *cobra.Command {
 
 			fmt.Fprintln(os.Stderr)
 			if len(failed) > 0 {
+				// 실패 목록은 이미 stderr 에 찍혔다. cobra 의 "Error: ..." 중복을
+				// 막고 런타임 에러만 반환한다(exit code 는 main 의 Classify=1).
 				fmt.Fprintf(os.Stderr, "실패한 provider: %v\n", failed)
-				os.Exit(1)
+				cmd.SilenceErrors = true
+				return clierr.PreconditionError{Msg: fmt.Sprintf("로그인 실패: %v", failed)}
 			}
 			fmt.Fprintln(os.Stderr, "모든 provider 로그인 완료")
 			return nil

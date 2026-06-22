@@ -34,9 +34,9 @@ type CountryTarget struct {
 
 // Config is the parsed shape of repos.yml.
 type Config struct {
-	Repos    map[string][]string  `yaml:"repos"`
-	Defaults []string             `yaml:"defaults"`
-	Runs     map[string]RepoRuns  `yaml:"runs"`
+	Repos    map[string][]string   `yaml:"repos"`
+	Defaults []string              `yaml:"defaults"`
+	Runs     map[string]RepoRuns   `yaml:"runs"`
 	Logs     map[string]LogsConfig `yaml:"logs"`
 }
 
@@ -230,20 +230,8 @@ func joinKeys(m map[string]Profile) string {
 	for k := range m {
 		names = append(names, k)
 	}
-	// stable for tests
-	for i := 1; i < len(names); i++ {
-		for j := i; j > 0 && names[j-1] > names[j]; j-- {
-			names[j-1], names[j] = names[j], names[j-1]
-		}
-	}
-	out := ""
-	for i, n := range names {
-		if i > 0 {
-			out += ", "
-		}
-		out += n
-	}
-	return out
+	sort.Strings(names) // 알파벳 오름차순 — 에러 메시지 출력 안정화
+	return strings.Join(names, ", ")
 }
 
 // PathOrDefault 는 설정된 로그 경로, 없으면 DefaultLogPath.

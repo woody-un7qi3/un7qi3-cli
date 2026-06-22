@@ -99,10 +99,58 @@ func TestViewContentFiltersAndJoins(t *testing.T) {
 
 func TestAppendBufCaps(t *testing.T) {
 	var buf []LogLine
+	total := 0
 	for i := 0; i < maxBuf+10; i++ {
-		buf = appendBuf(buf, LogLine{Num: 1, Text: "x", Kind: KindLog})
+		var dropped int
+		buf, dropped = appendBuf(buf, LogLine{Num: 1, Text: "x", Kind: KindLog})
+		total += dropped
 	}
 	if len(buf) != maxBuf {
 		t.Errorf("상한 %d 기대, 실제 %d", maxBuf, len(buf))
+	}
+	// maxBuf 이내에서는 폐기 없음, 그 이후 10줄이 앞에서 밀려난다.
+	if total != 10 {
+		t.Errorf("폐기 누적 10 기대, 실제 %d", total)
+	}
+}
+
+// TestAppendBufDiscardedCount 은 상한 도달 전에는 0, 이후 매 추가마다 1씩
+// 폐기됨을 단언한다.
+func TestAppendBufDiscardedCount(t *testing.T) {
+	buf := make([]LogLine, maxBuf) // 이미 가득 찬 상태
+	buf, dropped := appendBuf(buf, LogLine{Num: 1, Text: "x", Kind: KindLog})
+	if dropped != 1 {
+		t.Errorf("가득 찬 버퍼에 추가 시 폐기 1 기대, 실제 %d", dropped)
+	}
+	if len(buf) != maxBuf {
+		t.Errorf("상한 유지 %d 기대, 실제 %d", maxBuf, len(buf))
+	}
+
+	var empty []LogLine
+	_, dropped = appendBuf(empty, LogLine{Num: 1, Text: "x", Kind: KindLog})
+	if dropped != 0 {
+		t.Errorf("여유 있는 버퍼는 폐기 0 기대, 실제 %d", dropped)
+	}
+}
+
+// TestModelTracksDiscarded 은 model 이 폐기 누적을 추적하고 View 에 노출하는지
+// 확인한다.
+func TestModelTracksDiscarded(t *testing.T) {
+	m := newModel([]Instance{{Num: 1, ID: "i-a"}}, "", "myapp", "prod")
+	// 뷰포트 준비 (View 가 m.ready 를 요구).
+	nm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m = nm.(model)
+	// 버퍼를 미리 가득 채워 다음 로그가 곧바로 폐기를 유발하게 한다.
+	m.buf = make([]LogLine, maxBuf)
+	for i := range m.buf {
+		m.buf[i] = LogLine{Num: 1, ID: "i-a", Text: "old", Kind: KindLog}
+	}
+	nm, _ = m.Update(logMsg{Num: 1, ID: "i-a", Text: "overflow", Kind: KindLog})
+	m = nm.(model)
+	if m.discarded == 0 {
+		t.Fatalf("폐기 카운터가 증가해야 한다, 실제 %d", m.discarded)
+	}
+	if v := m.View(); !strings.Contains(v, "생략") {
+		t.Errorf("View 에 생략 표시가 보여야 한다:\n%s", v)
 	}
 }

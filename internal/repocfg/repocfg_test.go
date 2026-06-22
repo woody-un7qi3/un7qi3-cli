@@ -158,6 +158,29 @@ func TestProfileFor_ProcEmptyCmd(t *testing.T) {
 	}
 }
 
+// joinKeys 는 맵 키를 알파벳 오름차순으로 ", " 로 이어 붙인다 — 에러 메시지에서
+// "사용 가능: ..." 목록 순서가 맵 순회 순서와 무관하게 안정적이어야 한다.
+func TestJoinKeys(t *testing.T) {
+	tests := []struct {
+		name string
+		in   map[string]Profile
+		want string
+	}{
+		{"empty", map[string]Profile{}, "(없음)"},
+		{"nil", nil, "(없음)"},
+		{"single", map[string]Profile{"a": {}}, "a"},
+		{"sorted", map[string]Profile{"c": {}, "a": {}, "b": {}}, "a, b, c"},
+		{"mixed-case", map[string]Profile{"B": {}, "a": {}, "A": {}}, "A, B, a"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := joinKeys(tt.in); got != tt.want {
+				t.Errorf("joinKeys() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func sampleCountries() *Countries {
 	return &Countries{
 		Default: "kr",
