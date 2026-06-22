@@ -1,0 +1,41 @@
+# GoReleaser 설정 — 태그 push 시 GitHub Actions 가 실행한다.
+# 릴리즈 대상 레포는 명시하지 않고 git 원격에서 추론한다(회사 계정 이전 시 origin 만 변경).
+version: 2
+
+project_name: uq
+
+builds:
+  - id: uq
+    main: ./cmd/uq
+    binary: uq
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    # internal/version 변수 주입 — Makefile 의 ldflags 와 동일 매핑.
+    ldflags:
+      - -X github.com/un7qi3inc/un7qi3-cli/internal/version.Version={{ .Version }}
+      - -X github.com/un7qi3inc/un7qi3-cli/internal/version.Commit={{ .ShortCommit }}
+      - -X github.com/un7qi3inc/un7qi3-cli/internal/version.Date={{ .Date }}
+
+# raw 바이너리로 발행 — uq upgrade 가 tar 해제 없이 그대로 받아 교체한다.
+# 에셋 이름은 assetName(GOOS,GOARCH) = uq_<os>_<arch> 와 일치해야 한다.
+archives:
+  - id: uq
+    formats:
+      - binary
+    name_template: "uq_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  use: github
+
+release:
+  # owner/name 미지정 → 원격에서 추론.
+  draft: false
+  prerelease: auto
