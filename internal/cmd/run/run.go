@@ -66,7 +66,10 @@ func NewCmd() *cobra.Command {
 		Long:  long,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
-			repoName, profileName := splitTarget(args[0])
+			repoName, profileName, err := splitTarget(args[0])
+			if err != nil {
+				return err
+			}
 
 			cfg, err := repocfg.Load()
 			if err != nil {
@@ -390,11 +393,24 @@ func procNames(procs []repocfg.Proc) []string {
 }
 
 // splitTarget parses "repo" or "repo:profile" into its parts.
-func splitTarget(s string) (repo, profile string) {
-	if i := strings.IndexByte(s, ':'); i >= 0 {
-		return s[:i], s[i+1:]
+//
+// 정상 입력은 기존과 동일하게 갈린다: "repo" → ("repo", ""), "repo:profile" →
+// ("repo", "profile"). 콜론을 썼는데 한쪽이 빈 모호한 입력(":", "repo:",
+// ":profile")은 조용히 빈 값을 흘려보내 ProfileFor 단계에서 엉뚱한 메시지로
+// 이어지므로, 여기서 clierr.InvalidArgError(usage, exit 2)로 명확히 막는다.
+func splitTarget(s string) (repo, profile string, err error) {
+	i := strings.IndexByte(s, ':')
+	if i < 0 {
+		return s, "", nil
 	}
-	return s, ""
+	repo, profile = s[:i], s[i+1:]
+	if repo == "" {
+		return "", "", clierr.InvalidArgError{Msg: fmt.Sprintf("repo 가 비어 있습니다: %q — `repo` 또는 `repo:profile` 형식으로 지정하세요", s)}
+	}
+	if profile == "" {
+		return "", "", clierr.InvalidArgError{Msg: fmt.Sprintf("프로파일이 비어 있습니다: %q — 콜론 뒤에 프로파일명을 적거나, 기본 프로파일을 쓰려면 `%s` 로 실행하세요", s, repo)}
+	}
+	return repo, profile, nil
 }
 
 // currentBranch returns the working tree's branch, or "(detached)" / "(unknown)".

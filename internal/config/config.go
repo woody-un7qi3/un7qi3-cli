@@ -114,8 +114,17 @@ func IsReposDirConfigured() bool {
 }
 
 // expandPath turns ~ and $VARS into an absolute, cleaned path.
+//
+// 존재 여부(stat)는 검증하지 않는다 — repos dir 은 최초 clone 전에는 아직
+// 없는 게 정상이라, 그 검사는 실제로 디렉토리가 필요한 시점(clone/pull/run)에
+// 각 호출부가 한다. 여기서는 확장 결과가 빈 문자열이 되는 깨진 설정만 잡는다
+// (예: repos_dir 가 정의되지 않은 $VAR 하나뿐이라 빈 경로로 풀리는 경우).
 func expandPath(p string) (string, error) {
-	p = os.ExpandEnv(p)
+	expanded := os.ExpandEnv(p)
+	if strings.TrimSpace(expanded) == "" {
+		return "", fmt.Errorf("repos dir 경로가 비어 있습니다: %q (확장 후 빈 문자열) — 설정/환경변수를 확인하세요", p)
+	}
+	p = expanded
 	switch {
 	case p == "~":
 		home, err := os.UserHomeDir()
