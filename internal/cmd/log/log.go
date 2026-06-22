@@ -44,15 +44,10 @@ func NewCmd() *cobra.Command {
 		output.Desc("국가·환경은 위치인자로 지정하거나, 대상만 주면 대화형으로 고른 뒤 TUI 뷰어로 진입합니다."),
 		"",
 		output.Heading("예시"),
+		output.HelpExample("uq log list", "대상부터 대화형으로 선택"),
 		output.HelpExample("uq log forceteller-api", "국가·환경 대화형 선택 → TUI 뷰어"),
-		output.HelpExample("uq log forceteller-api kr beta", "kr beta 환경 전체 인스턴스"),
-		output.HelpExample("uq log forceteller-api kr", "kr 환경 대화형 선택"),
-		output.HelpExample("uq log forceteller-api kr beta --split", "인스턴스별 패널 분리"),
-		output.HelpExample("uq log forceteller-api kr beta --grep ERROR", "ERROR 패턴만 필터"),
-		output.HelpExample("uq log forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
 		output.HelpExample("uq log targets", "등록된 log 대상 나열 (사람용)"),
 		output.HelpExample("uq log targets --json", "에이전트/자동화용 머신 출력"),
-		output.HelpExample("uq log list", "대상부터 대화형으로 선택 (이름 몰라도 OK)"),
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "log <대상> [필터...]",
