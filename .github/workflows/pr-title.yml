@@ -1,0 +1,19 @@
+name: pr-title
+
+# PR 제목이 Conventional Commit 형식인지 검사한다.
+# squash merge 시 PR 제목이 곧 main 커밋이 되어 release-please 가 읽으므로,
+# 제목 형식이 틀리면 머지를 막아 릴리즈 자동화가 깨지지 않게 한다.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
