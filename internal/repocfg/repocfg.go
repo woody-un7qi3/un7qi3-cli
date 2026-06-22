@@ -34,9 +34,9 @@ type CountryTarget struct {
 
 // Config is the parsed shape of repos.yml.
 type Config struct {
-	Repos    map[string][]string  `yaml:"repos"`
-	Defaults []string             `yaml:"defaults"`
-	Runs     map[string]RepoRuns  `yaml:"runs"`
+	Repos    map[string][]string   `yaml:"repos"`
+	Defaults []string              `yaml:"defaults"`
+	Runs     map[string]RepoRuns   `yaml:"runs"`
 	Logs     map[string]LogsConfig `yaml:"logs"`
 }
 

@@ -7,11 +7,11 @@ func TestNeedsUpgrade(t *testing.T) {
 		current, latest string
 		want            bool
 	}{
-		{"dev", "v0.1.0", true},      // 로컬 dev 빌드 → 항상 업그레이드
-		{"0.1.0", "v0.1.0", false},   // v 접두 차이 무시 → 동일
-		{"v0.1.0", "v0.1.0", false},  // 동일
-		{"0.1.0", "v0.2.0", true},    // 더 새 버전
-		{"0.1.0", "", false},         // 릴리즈 정보 없음 → 업그레이드 안 함
+		{"dev", "v0.1.0", true},       // 로컬 dev 빌드 → 항상 업그레이드
+		{"0.1.0", "v0.1.0", false},    // v 접두 차이 무시 → 동일
+		{"v0.1.0", "v0.1.0", false},   // 동일
+		{"0.1.0", "v0.2.0", true},     // 더 새 버전
+		{"0.1.0", "", false},          // 릴리즈 정보 없음 → 업그레이드 안 함
 		{" v0.1.0 ", "v0.1.0", false}, // 공백 무시
 	}
 	for _, c := range cases {
