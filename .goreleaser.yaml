@@ -37,5 +37,8 @@ changelog:
 
 release:
   # owner/name 미지정 → 원격에서 추론.
+  # release-please 가 먼저 릴리즈를 만들므로, GoReleaser 는 새로 만들지 않고
+  # 그 릴리즈에 바이너리만 덧붙인다(중복 릴리즈 방지).
+  mode: append
   draft: false
   prerelease: auto

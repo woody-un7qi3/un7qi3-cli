@@ -1,0 +1,43 @@
+name: release-please
+
+# main 에 머지될 때마다 실행.
+# - 평소: 쌓인 fix/feat 로 "Release PR" 을 생성/갱신 (릴리즈 안 함)
+# - Release PR 머지 시: 태그+릴리즈 생성 → GoReleaser 가 바이너리 첨부
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        id: release
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # 아래는 Release PR 이 머지돼 새 릴리즈가 만들어졌을 때만 실행된다.
+      - uses: actions/checkout@v4
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          ref: ${{ steps.release.outputs.tag_name }}
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          go-version: stable
+          cache: true
+
+      - uses: goreleaser/goreleaser-action@v6
+        if: ${{ steps.release.outputs.release_created }}
+        with:
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
