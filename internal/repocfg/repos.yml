@@ -36,16 +36,23 @@ runs:
         url: "http://localhost:3100"
         env:
           YARN_IGNORE_NODE: "1"
-        # 실행 전 kr 의 API 서버를 원격↔로컬로 토글(env.dev.ts 직접 수정).
-        # 두 match 문자열은 kr 블록에만 있어 정확히 한 줄만 치환된다.
+        # 실행 전 로케일(kr/jp)을 고르고 그 블록의 API 서버를 원격↔로컬로 토글한다
+        # (env.dev.ts 직접 수정). anchor 로 블록을 한정해, 둘 다 localhost 여도 해당
+        # 로케일 줄만 정확히 바뀐다.
         switches:
-          - name: "API 서버 (kr)"
+          - name: "API 서버"
             file: "projects/forceteller-app3/src/environments/env.dev.ts"
-            options:
-              - label: "원격 (api-dev)"
-                match: "apiUrl: 'https://api-dev.gc.forceteller.com'"
-              - label: "로컬 (localhost:9200)"
-                match: "apiUrl: 'http://localhost:9200'"
+            scopes:
+              - label: "kr"
+                anchor: "kr: {"
+                options:
+                  - { label: "원격 (api-dev)", match: "apiUrl: 'https://api-dev.gc.forceteller.com'" }
+                  - { label: "로컬 (localhost:9200)", match: "apiUrl: 'http://localhost:9200'" }
+              - label: "jp"
+                anchor: "jp: {"
+                options:
+                  - { label: "원격 (api-dev)", match: "apiUrl: 'https://api-dev.gc.forceteller.jp'" }
+                  - { label: "로컬 (localhost:9200)", match: "apiUrl: 'http://localhost:9200'" }
 
   forceteller-admin:
     default: local

@@ -32,17 +32,25 @@ type CountryTarget struct {
 	Region string `yaml:"region"`
 }
 
-// Switch 는 실행 전 토글 가능한 소스 파일 설정 하나를 기술한다. File 안에는 항상
-// Options 중 정확히 하나의 Match 문자열만 존재한다고 가정한다 — 현재 선택은 어떤
-// Match 가 들어있는지로 감지하고, 다른 옵션을 고르면 그 Match 로 치환한다.
+// Switch 는 실행 전 토글 가능한 소스 파일 설정 하나를 기술한다(예: API 서버).
+// Scopes 는 먼저 고르는 축(예: 로케일 kr/jp). scope 가 1개면 선택 단계를 건너뛴다.
 type Switch struct {
-	Name    string         `yaml:"name"`    // 표시 이름 (예: "API 서버")
-	File    string         `yaml:"file"`    // repo 루트 기준 상대 경로
-	Options []SwitchOption `yaml:"options"` // 상호배타 옵션들
+	Name   string        `yaml:"name"`   // 표시 이름 (예: "API 서버")
+	File   string        `yaml:"file"`   // repo 루트 기준 상대 경로
+	Scopes []SwitchScope `yaml:"scopes"` // 선택 축(예: 로케일). 1개면 선택 생략
 }
 
-// SwitchOption 은 Switch 의 한 선택지. Match 는 파일에 들어가는(=현재 감지하는)
-// 정확한 문자열이며, 다른 옵션과 겹치지 않아야 한다.
+// SwitchScope 는 파일 안의 한 영역(예: env 의 kr 블록)과 그 영역에서 고를 옵션들.
+// Anchor 가 있으면 그 문자열 이후 영역에서만 감지·치환한다(블록 한정 — 같은 값이
+// 다른 블록에도 있어도 안전). Anchor 가 비면 파일 전체가 대상이다.
+type SwitchScope struct {
+	Label   string         `yaml:"label"`            // 표시명 (예: "kr")
+	Anchor  string         `yaml:"anchor,omitempty"` // 이 문자열 이후에서만 처리
+	Options []SwitchOption `yaml:"options"`          // 상호배타 옵션들
+}
+
+// SwitchOption 은 scope 의 한 선택지. Match 는 파일에 들어가는(=현재 감지하는)
+// 정확한 문자열이며, 같은 scope 의 다른 옵션과 겹치지 않아야 한다.
 type SwitchOption struct {
 	Label string `yaml:"label"`
 	Match string `yaml:"match"`

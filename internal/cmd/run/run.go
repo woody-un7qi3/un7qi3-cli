@@ -320,9 +320,9 @@ func pickOne(title string, labels, values []string, def string) (string, error) 
 	return choice, nil
 }
 
-// applySwitches 는 프로파일의 switch 들을 대화형으로 적용한다. 각 switch 파일에서
-// 현재 옵션(어떤 Match 가 들어있는지)을 감지해 기본 선택으로 보여주고, 다른 옵션을
-// 고르면 그 줄만 정확히 치환해 파일을 쓴다. 변경 없으면 건너뛴다.
+// applySwitches 는 프로파일의 switch 들을 대화형으로 적용한다. scope 가 여럿이면
+// 먼저 scope(예: 로케일)를 고르고, 그 scope 의 anchor 이후 영역에서 현재 옵션을
+// 감지해 기본 선택으로 보여준 뒤, 다른 옵션을 고르면 그 한 군데만 정확히 치환한다.
 func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error {
 	for _, sw := range switches {
 		path := filepath.Join(repoDir, sw.File)
@@ -331,49 +331,92 @@ func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error
 			return fmt.Errorf("switch %q 파일 읽기 실패: %w", sw.Name, err)
 		}
 		content := string(data)
-		cur := -1
-		for i, o := range sw.Options {
-			if strings.Contains(content, o.Match) {
-				cur = i
-				break
+
+		sc := sw.Scopes[0]
+		if len(sw.Scopes) > 1 {
+			labels := make([]string, len(sw.Scopes))
+			for i, s := range sw.Scopes {
+				labels[i] = s.Label
+			}
+			idx, err := pickIndex(sw.Name+" — 대상 선택", labels, 0)
+			if err != nil {
+				return err
+			}
+			sc = sw.Scopes[idx]
+		}
+
+		// anchor 이후 영역에서 현재 옵션을 감지한다(가장 앞선 match = 그 블록의 줄).
+		start := 0
+		if sc.Anchor != "" {
+			a := strings.Index(content, sc.Anchor)
+			if a < 0 {
+				fmt.Fprintln(w, output.Yellow("⚠"), sw.Name+"/"+sc.Label+": anchor 를 못 찾아 건너뜁니다")
+				continue
+			}
+			start = a
+		}
+		region := content[start:]
+		cur, curPos := -1, -1
+		for i, o := range sc.Options {
+			if p := strings.Index(region, o.Match); p >= 0 && (curPos < 0 || p < curPos) {
+				cur, curPos = i, p
 			}
 		}
 		if cur < 0 {
-			fmt.Fprintln(w, output.Yellow("⚠"), sw.Name+": 파일에서 알려진 옵션을 못 찾아 건너뜁니다")
+			fmt.Fprintln(w, output.Yellow("⚠"), sw.Name+"/"+sc.Label+": 알려진 옵션을 못 찾아 건너뜁니다")
 			continue
 		}
-		labels := make([]string, len(sw.Options))
-		values := make([]string, len(sw.Options))
-		for i, o := range sw.Options {
+
+		labels := make([]string, len(sc.Options))
+		for i, o := range sc.Options {
 			labels[i] = o.Label
 			if i == cur {
 				labels[i] += "  (현재)"
 			}
-			values[i] = o.Match
 		}
-		chosen, err := pickOne(sw.Name, labels, values, sw.Options[cur].Match)
+		title := sw.Name
+		if len(sw.Scopes) > 1 {
+			title += " (" + sc.Label + ")"
+		}
+		chosenIdx, err := pickIndex(title, labels, cur)
 		if err != nil {
 			return err
 		}
-		if chosen == sw.Options[cur].Match {
+		if chosenIdx == cur {
 			continue
 		}
+
+		curMatch := sc.Options[cur].Match
+		abs := start + curPos
+		newContent := content[:abs] + sc.Options[chosenIdx].Match + content[abs+len(curMatch):]
 		info, err := os.Stat(path)
 		if err != nil {
 			return fmt.Errorf("switch %q stat 실패: %w", sw.Name, err)
 		}
-		newContent := strings.Replace(content, sw.Options[cur].Match, chosen, 1)
 		if err := os.WriteFile(path, []byte(newContent), info.Mode().Perm()); err != nil {
 			return fmt.Errorf("switch %q 쓰기 실패: %w", sw.Name, err)
 		}
-		for _, o := range sw.Options {
-			if o.Match == chosen {
-				fmt.Fprintln(w, output.Green("✓"), sw.Name+" →", o.Label)
-				break
-			}
-		}
+		fmt.Fprintln(w, output.Green("✓"), title+" →", sc.Options[chosenIdx].Label)
 	}
 	return nil
+}
+
+// pickIndex 는 라벨 목록에서 하나를 골라 그 인덱스를 반환한다(def 인덱스를 기본 선택).
+func pickIndex(title string, labels []string, def int) (int, error) {
+	values := make([]string, len(labels))
+	for i := range labels {
+		values[i] = strconv.Itoa(i)
+	}
+	defVal := ""
+	if def >= 0 && def < len(values) {
+		defVal = values[def]
+	}
+	got, err := pickOne(title, labels, values, defVal)
+	if err != nil {
+		return 0, err
+	}
+	idx, _ := strconv.Atoi(got)
+	return idx, nil
 }
 
 type runMode int
