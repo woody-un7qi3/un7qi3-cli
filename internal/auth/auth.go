@@ -2,6 +2,22 @@
 // It is consumed by the `uq auth` command group and re-used by `uq doctor`.
 package auth
 
+import (
+	"errors"
+
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
+)
+
+// init teaches the central error classifier that *RequiredError means exit 4.
+// Registering here (rather than importing auth from clierr) keeps clierr free
+// of an auth dependency and avoids an import cycle.
+func init() {
+	clierr.RegisterAuthRequired(func(err error) bool {
+		var re *RequiredError
+		return errors.As(err, &re)
+	})
+}
+
 // Status describes the authentication state of a single provider.
 type Status struct {
 	Name    string `json:"name"`              // "gh", "aws", "gcloud"
