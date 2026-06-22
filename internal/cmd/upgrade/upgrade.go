@@ -146,13 +146,21 @@ func formatReleaseNotes(body string) string {
 		case strings.HasPrefix(line, "* "), strings.HasPrefix(line, "- "):
 			item := strings.TrimSpace(line[1:])
 			item = reCommitRef.ReplaceAllString(item, "")
-			item = reMarkdownLink.ReplaceAllString(item, "$1")
-			out = append(out, "· "+item)
+			out = append(out, "· "+cleanInline(item))
 		default:
-			out = append(out, reMarkdownLink.ReplaceAllString(line, "$1"))
+			out = append(out, cleanInline(line))
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// cleanInline 은 한 줄에서 마크다운 인라인 장식을 걷어낸다: 링크 [텍스트](url) →
+// 텍스트, 굵게 표시 **텍스트**/__텍스트__ 의 마커 제거.
+func cleanInline(s string) string {
+	s = reMarkdownLink.ReplaceAllString(s, "$1")
+	s = strings.ReplaceAll(s, "**", "")
+	s = strings.ReplaceAll(s, "__", "")
+	return s
 }
 
 // needsUpgrade 는 현재 버전과 최신 태그를 비교해 업그레이드가 필요한지 판단한다.

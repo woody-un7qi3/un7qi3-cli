@@ -45,6 +45,11 @@ func TestFormatReleaseNotes(t *testing.T) {
 			want: "문서\n· README 갱신",
 		},
 		{
+			name: "스코프 강조(**)는 제거한다",
+			body: "### 기능\n\n* **upgrade:** 릴리즈 노트를 터미널 평문으로 렌더링 ([17b06a4](url))\n",
+			want: "기능\n· upgrade: 릴리즈 노트를 터미널 평문으로 렌더링",
+		},
+		{
 			name: "빈 본문은 빈 문자열",
 			body: "",
 			want: "",
