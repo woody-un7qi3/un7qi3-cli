@@ -124,6 +124,22 @@ func findCmdByPath(t *testing.T, path []string) *cobra.Command {
 	return c
 }
 
+// 명령 목록은 별칭이 있으면 "이름|별칭" 으로 보여준다 (예: update|upgrade).
+func TestCommandListName(t *testing.T) {
+	noAlias := &cobra.Command{Use: "doctor"}
+	if got := commandListName(noAlias); got != "doctor" {
+		t.Errorf("별칭 없음 = %q, want %q", got, "doctor")
+	}
+	aliased := &cobra.Command{Use: "update", Aliases: []string{"upgrade"}}
+	if got := commandListName(aliased); got != "update|upgrade" {
+		t.Errorf("별칭 있음 = %q, want %q", got, "update|upgrade")
+	}
+	multi := &cobra.Command{Use: "ls", Aliases: []string{"list", "l"}}
+	if got := commandListName(multi); got != "ls|list|l" {
+		t.Errorf("별칭 다수 = %q, want %q", got, "ls|list|l")
+	}
+}
+
 // inGroup is a tiny helper but the chain "AddCommand(inGroup(NewCmd(), id))"
 // is everywhere — make sure it doesn't drop the group.
 func TestInGroup_AssignsID(t *testing.T) {

@@ -237,6 +237,15 @@ func renderCommandGroup(cmds []*cobra.Command, groupID string) string {
 	return renderCommandList(filtered)
 }
 
+// commandListName 은 명령 목록에 표시할 이름을 만든다. 별칭이 있으면
+// "이름|별칭1|별칭2" 형태로 합쳐 보여준다 (예: update|upgrade).
+func commandListName(c *cobra.Command) string {
+	if len(c.Aliases) == 0 {
+		return c.Name()
+	}
+	return c.Name() + "|" + strings.Join(c.Aliases, "|")
+}
+
 // renderCommandList formats the subcommand listing block exactly like
 // cobra's default template, then colorizes command names.
 func renderCommandList(cmds []*cobra.Command) string {
@@ -247,13 +256,13 @@ func renderCommandList(cmds []*cobra.Command) string {
 			continue
 		}
 		visible = append(visible, c)
-		if l := len(c.Name()); l > padding {
+		if l := len(commandListName(c)); l > padding {
 			padding = l
 		}
 	}
 	var b strings.Builder
 	for i, c := range visible {
-		name := c.Name()
+		name := commandListName(c)
 		pad := strings.Repeat(" ", padding-len(name))
 		b.WriteString("  ")
 		b.WriteString(output.Cyan(name))

@@ -32,9 +32,9 @@ func NewCmd() *cobra.Command {
 		output.Desc("현재 실행 중인 바이너리를 제자리에서 교체합니다."),
 	}, "\n")
 	return &cobra.Command{
-		Use:     "upgrade",
-		Aliases: []string{"update"},
-		Short:   "uq를 최신 릴리즈로 업그레이드",
+		Use:     "update",
+		Aliases: []string{"upgrade"},
+		Short:   "업데이트 확인 후 있으면 설치",
 		Long:    long,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
