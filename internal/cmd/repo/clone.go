@@ -114,7 +114,7 @@ func runNamedClone(cmd *cobra.Command, names []string, dir string) error {
 // runBulkClone는 조직 전체(team="") 또는 topic으로 좁힌 후보를
 // TUI 다중 선택(또는 --all/--list)한 뒤 일괄 클론한다.
 func runBulkClone(cmd *cobra.Command, team string, all, list, jsonOut bool) error {
-	candidates, err := fetchOrgRepos(200, team)
+	candidates, err := fetchOrgRepos(cmd.Context(), 200, team)
 	if err != nil {
 		return err
 	}

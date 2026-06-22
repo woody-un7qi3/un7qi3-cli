@@ -151,7 +151,7 @@ func resolvePullTargets(cmd *cobra.Command, reposDir, team string, all bool) ([]
 				Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 			}
 		}
-		topicRepos, err := fetchOrgRepos(200, team)
+		topicRepos, err := fetchOrgRepos(cmd.Context(), 200, team)
 		if err != nil {
 			return nil, err
 		}
