@@ -1,10 +1,12 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "pull-request-header": "이 PR을 머지하면 아래 변경사항으로 새 버전이 릴리즈됩니다.",
+  "pull-request-footer": "",
   "packages": {
     ".": {
       "release-type": "simple",
       "bump-minor-pre-major": true,
-      "bump-patch-for-minor-pre-major": false,
+      "bump-patch-for-minor-pre-major": true,
       "changelog-sections": [
         { "type": "feat", "section": "기능" },
         { "type": "fix", "section": "버그 수정" },
