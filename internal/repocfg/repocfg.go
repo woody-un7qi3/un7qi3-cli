@@ -32,6 +32,22 @@ type CountryTarget struct {
 	Region string `yaml:"region"`
 }
 
+// Switch 는 실행 전 토글 가능한 소스 파일 설정 하나를 기술한다. File 안에는 항상
+// Options 중 정확히 하나의 Match 문자열만 존재한다고 가정한다 — 현재 선택은 어떤
+// Match 가 들어있는지로 감지하고, 다른 옵션을 고르면 그 Match 로 치환한다.
+type Switch struct {
+	Name    string         `yaml:"name"`    // 표시 이름 (예: "API 서버")
+	File    string         `yaml:"file"`    // repo 루트 기준 상대 경로
+	Options []SwitchOption `yaml:"options"` // 상호배타 옵션들
+}
+
+// SwitchOption 은 Switch 의 한 선택지. Match 는 파일에 들어가는(=현재 감지하는)
+// 정확한 문자열이며, 다른 옵션과 겹치지 않아야 한다.
+type SwitchOption struct {
+	Label string `yaml:"label"`
+	Match string `yaml:"match"`
+}
+
 // Config is the parsed shape of repos.yml.
 type Config struct {
 	Repos    map[string][]string   `yaml:"repos"`
@@ -64,6 +80,9 @@ type Profile struct {
 	// Desc 는 프로파일의 짧은 용도 설명(예: 로케일 "kr, jp"). 선택 picker·목록에
 	// 표시용으로만 쓰이고 실행에는 영향이 없다.
 	Desc string `yaml:"desc,omitempty"`
+	// Switches 는 실행 전 대화형으로 토글할 수 있는 소스 파일 설정들(예: API 서버를
+	// 원격↔localhost 로). uq run list 흐름에서 프로파일 선택 뒤 단계로 노출된다.
+	Switches []Switch `yaml:"switches,omitempty"`
 	// URL is the address the dev server listens on (single-cmd profiles).
 	// Printed in the header so users know where to navigate once compile is done.
 	URL string `yaml:"url,omitempty"`

@@ -234,6 +234,16 @@ func newRunListCmd(parent *cobra.Command) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// 선택한 프로파일에 switch 가 선언돼 있으면 실행 전 대화형으로 적용한다.
+			repoName, profileName, err := splitTarget(target)
+			if err != nil {
+				return err
+			}
+			if sw := cfg.Runs[repoName].Profiles[profileName].Switches; len(sw) > 0 {
+				if err := applySwitches(c.OutOrStderr(), filepath.Join(reposDir, repoName), sw); err != nil {
+					return err
+				}
+			}
 			return parent.RunE(c, []string{target})
 		},
 	}
@@ -256,7 +266,7 @@ func pickProfile(profiles []profileJSON) (string, error) {
 
 	repo := repos[0]
 	if len(repos) > 1 {
-		r, err := pickOne("레포 선택", repos, repos)
+		r, err := pickOne("레포 선택", repos, repos, "")
 		if err != nil {
 			return "", err
 		}
@@ -279,20 +289,27 @@ func pickProfile(profiles []profileJSON) (string, error) {
 		}
 		values[i] = p.Name
 	}
-	name, err := pickOne(repo+" — 프로파일 선택", labels, values)
+	name, err := pickOne(repo+" — 프로파일 선택", labels, values, "")
 	if err != nil {
 		return "", err
 	}
 	return repo + ":" + name, nil
 }
 
-// pickOne 은 라벨/값 병렬 슬라이스로 huh 단일 선택을 띄운다.
-func pickOne(title string, labels, values []string) (string, error) {
+// pickOne 은 라벨/값 병렬 슬라이스로 huh 단일 선택을 띄운다. def 가 values 에
+// 있으면 그것을 기본 선택으로, 아니면 첫 항목을 기본으로 한다.
+func pickOne(title string, labels, values []string, def string) (string, error) {
 	opts := make([]huh.Option[string], len(values))
 	for i := range values {
 		opts[i] = huh.NewOption(labels[i], values[i])
 	}
 	choice := values[0]
+	for _, v := range values {
+		if v == def {
+			choice = def
+			break
+		}
+	}
 	if err := huh.NewSelect[string]().
 		Title(title).
 		Options(opts...).
@@ -301,6 +318,62 @@ func pickOne(title string, labels, values []string) (string, error) {
 		return "", err
 	}
 	return choice, nil
+}
+
+// applySwitches 는 프로파일의 switch 들을 대화형으로 적용한다. 각 switch 파일에서
+// 현재 옵션(어떤 Match 가 들어있는지)을 감지해 기본 선택으로 보여주고, 다른 옵션을
+// 고르면 그 줄만 정확히 치환해 파일을 쓴다. 변경 없으면 건너뛴다.
+func applySwitches(w io.Writer, repoDir string, switches []repocfg.Switch) error {
+	for _, sw := range switches {
+		path := filepath.Join(repoDir, sw.File)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("switch %q 파일 읽기 실패: %w", sw.Name, err)
+		}
+		content := string(data)
+		cur := -1
+		for i, o := range sw.Options {
+			if strings.Contains(content, o.Match) {
+				cur = i
+				break
+			}
+		}
+		if cur < 0 {
+			fmt.Fprintln(w, output.Yellow("⚠"), sw.Name+": 파일에서 알려진 옵션을 못 찾아 건너뜁니다")
+			continue
+		}
+		labels := make([]string, len(sw.Options))
+		values := make([]string, len(sw.Options))
+		for i, o := range sw.Options {
+			labels[i] = o.Label
+			if i == cur {
+				labels[i] += "  (현재)"
+			}
+			values[i] = o.Match
+		}
+		chosen, err := pickOne(sw.Name, labels, values, sw.Options[cur].Match)
+		if err != nil {
+			return err
+		}
+		if chosen == sw.Options[cur].Match {
+			continue
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("switch %q stat 실패: %w", sw.Name, err)
+		}
+		newContent := strings.Replace(content, sw.Options[cur].Match, chosen, 1)
+		if err := os.WriteFile(path, []byte(newContent), info.Mode().Perm()); err != nil {
+			return fmt.Errorf("switch %q 쓰기 실패: %w", sw.Name, err)
+		}
+		for _, o := range sw.Options {
+			if o.Match == chosen {
+				fmt.Fprintln(w, output.Green("✓"), sw.Name+" →", o.Label)
+				break
+			}
+		}
+	}
+	return nil
 }
 
 type runMode int
