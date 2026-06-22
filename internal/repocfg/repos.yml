@@ -21,8 +21,14 @@ runs:
   forceteller-app:
     default: app3
     profiles:
+      app:
+        cmd: ["yarn", "start"] # ionic serve -p 3000 --project=app
+        node: "16"
+        url: "http://localhost:3000"
+        env:
+          YARN_IGNORE_NODE: "1"
       app3:
-        cmd: ["yarn", "start:app3"]
+        cmd: ["yarn", "start:app3"] # ionic serve -c dev -p 3100 --project=app3
         node: "16"
         url: "http://localhost:3100"
         env:
