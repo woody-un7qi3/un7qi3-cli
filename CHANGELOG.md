@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.5](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.4...v0.1.5) (2026-06-22)
+
+
+### 기능
+
+* **log:** external-api log 대상 추가 ([bfb41ae](https://github.com/woody-un7qi3/un7qi3-cli/commit/bfb41ae1de9172ba282db54225af0a6b5bcba243))
+* **log:** list 대화형 선택 서브명령 추가 및 internal/logs→internal/log 리네임 ([2128501](https://github.com/woody-un7qi3/un7qi3-cli/commit/2128501a7e13baf262c058df8d929e0803880f73))
+* **log:** 대상 나열 targets 서브명령 추가 및 logs→log 리네임 ([ec5b1c9](https://github.com/woody-un7qi3/un7qi3-cli/commit/ec5b1c994935a97f707c2976f269123865d0e2ee))
+* **run:** 멀티프로세스 로그를 uq log 공유 TUI 로 통합 ([ba99c3d](https://github.com/woody-un7qi3/un7qi3-cli/commit/ba99c3de987d6cd2cfa2f0f34c768ce2440f3684))
+
 ## [0.1.4](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.3...v0.1.4) (2026-06-22)
 
 
