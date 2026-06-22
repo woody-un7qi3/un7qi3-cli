@@ -16,7 +16,7 @@ import (
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
-	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/logs"
+	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/log"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 	"github.com/un7qi3inc/un7qi3-cli/internal/repocfg"
 	"github.com/un7qi3inc/un7qi3-cli/internal/run"
@@ -34,7 +34,7 @@ type logsOptions struct {
 	plain       bool
 }
 
-// NewCmd returns the `uq logs` command.
+// NewCmd returns the `uq log` command.
 func NewCmd() *cobra.Command {
 	opts := &logsOptions{}
 	long := strings.Join([]string{
@@ -52,6 +52,7 @@ func NewCmd() *cobra.Command {
 		output.HelpExample("uq log forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
 		output.HelpExample("uq log targets", "등록된 log 대상 나열 (사람용)"),
 		output.HelpExample("uq log targets --json", "에이전트/자동화용 머신 출력"),
+		output.HelpExample("uq log list", "대상부터 대화형으로 선택 (이름 몰라도 OK)"),
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "log <대상> [필터...]",
@@ -62,6 +63,15 @@ func NewCmd() *cobra.Command {
 			return runLogs(cmd, opts, args[0], args[1:])
 		},
 	}
+	bindLogsFlags(cmd, opts)
+	cmd.AddCommand(newTargetsCmd())
+	cmd.AddCommand(newListCmd())
+	return cmd
+}
+
+// bindLogsFlags 는 log 스트리밍 플래그를 cmd 에 바인딩한다. 기본 명령과 list
+// 서브명령이 동일한 플래그를 갖도록 공유한다.
+func bindLogsFlags(cmd *cobra.Command, opts *logsOptions) {
 	cmd.Flags().IntVar(&opts.instanceNum, "instance", 0, "1-base 인스턴스 번호로 한정 (0=전체)")
 	cmd.Flags().IntVar(&opts.linesN, "lines", 100, "초기 백로그 줄 수 (--grep 와 함께 늘리면 과거 로그 검색)")
 	cmd.Flags().StringVar(&opts.grep, "grep", "", "정규식으로 라인 필터")
@@ -70,8 +80,63 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "해석된 app/region/환경/명령만 출력")
 	cmd.Flags().BoolVar(&opts.plain, "plain", false, "TTY 라도 평문 스트리밍 강제 (TUI 끄기)")
 	cmd.MarkFlagsMutuallyExclusive("split", "no-follow")
-	cmd.AddCommand(newTargetsCmd())
+}
+
+// newListCmd 은 `uq log list` 서브명령을 만든다. 대상 이름을 모를 때 첫 단계(대상
+// 선택)부터 대화형으로 안내한 뒤, 기존 국가·환경 선택 흐름으로 이어 TUI 뷰어에
+// 진입한다. 대화형이므로 TTY 가 아니면 거절한다.
+func newListCmd() *cobra.Command {
+	opts := &logsOptions{}
+	cmd := &cobra.Command{
+		Use:   "list",
+		Short: "대상을 대화형으로 골라 로그 보기",
+		Long: strings.Join([]string{
+			output.Desc("등록된 log 대상을 대화형으로 고른 뒤, 국가·환경 선택을 거쳐 TUI 뷰어로 진입합니다."),
+			output.Desc("대상 이름이 기억나지 않을 때 첫 단계부터 안내합니다."),
+			"",
+			output.Heading("예시"),
+			output.HelpExample("uq log list", "대상 → 국가 → 환경 순서로 대화형 선택"),
+		}, "\n"),
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				return clierr.PreconditionError{Msg: "uq log list 는 대화형 터미널에서만 동작합니다 — `uq log <대상>` 을 쓰세요"}
+			}
+			cfg, err := repocfg.Load()
+			if err != nil {
+				return err
+			}
+			repos := cfg.LogsRepos()
+			if len(repos) == 0 {
+				fmt.Fprintln(cmd.OutOrStderr(), output.Dim("(등록된 log 대상 없음)"))
+				return nil
+			}
+			repo, err := pickLogsRepo(repos)
+			if err != nil {
+				return err
+			}
+			return runLogs(cmd, opts, repo, nil)
+		},
+	}
+	bindLogsFlags(cmd, opts)
 	return cmd
+}
+
+// pickLogsRepo 는 TTY 에서 log 대상을 선택받는다.
+func pickLogsRepo(repos []string) (string, error) {
+	opts := make([]huh.Option[string], 0, len(repos))
+	for _, r := range repos {
+		opts = append(opts, huh.NewOption(r, r))
+	}
+	choice := repos[0]
+	if err := huh.NewSelect[string]().
+		Title("log 대상 선택").
+		Options(opts...).
+		Value(&choice).
+		Run(); err != nil {
+		return "", err
+	}
+	return choice, nil
 }
 
 // greenRepos 는 repo 목록을 초록색으로 칠해 ", " 로 잇는다(help·에러 공용 포맷).

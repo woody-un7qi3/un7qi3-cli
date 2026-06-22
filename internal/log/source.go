@@ -1,5 +1,5 @@
-// Package logs streams EB instance logs for `uq logs <repo>`.
-package logs
+// Package log streams EB instance logs for `uq log <repo>`.
+package log
 
 // Target 은 한 국가의 EB application 과 region.
 type Target struct {
