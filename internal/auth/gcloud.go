@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -12,20 +13,29 @@ type gcloudAccount struct {
 	Status  string `json:"status"`
 }
 
-// GcloudStatus probes `gcloud auth list --format=json` for an ACTIVE account.
+// GcloudStatus probes `gcloud auth list --format=json` for an ACTIVE account
+// using the package default Runner. The binary-presence guard lives here (not
+// in the parse core) so unit tests can drive gcloudStatus with a fake Runner
+// on hosts where gcloud isn't installed.
 func GcloudStatus() Status {
-	s := Status{Name: "gcloud"}
 	if !uqexec.LookPath("gcloud") {
-		s.Error = "gcloud CLI 설치되지 않음"
-		return s
+		return Status{Name: "gcloud", Error: "gcloud CLI 설치되지 않음"}
 	}
-	out, err := uqexec.Run("gcloud", "auth", "list", "--format=json")
+	return gcloudStatus(context.Background(), defaultRunner)
+}
+
+// gcloudStatus runs the probe through r and parses the result. It assumes
+// gcloud exists (GcloudStatus guards that) so it is exercisable with a fake
+// Runner independent of the host PATH.
+func gcloudStatus(ctx context.Context, r uqexec.Runner) Status {
+	s := Status{Name: "gcloud"}
+	out, _, err := r.Run(ctx, "gcloud", "auth", "list", "--format=json")
 	if err != nil {
 		s.Error = trimMsg(err.Error())
 		return s
 	}
 	var accounts []gcloudAccount
-	if jerr := json.Unmarshal(out, &accounts); jerr != nil {
+	if jerr := json.Unmarshal([]byte(out), &accounts); jerr != nil {
 		s.Error = fmt.Sprintf("응답 파싱 실패: %v", jerr)
 		return s
 	}

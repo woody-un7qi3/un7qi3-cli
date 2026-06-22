@@ -2,6 +2,7 @@
 package doctor
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -16,8 +17,31 @@ import (
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
+
+// runner executes the version/identity probes. It defaults to the production
+// OSRunner but can be swapped in tests. exec.LookPath stays a direct call —
+// it resolves a path rather than running a command, so it is outside the
+// Runner contract.
+var runner uqexec.Runner = uqexec.Default()
+
+// probeCombined runs name+args and returns stdout and stderr merged, matching
+// the old exec.Command(...).CombinedOutput() behavior the checks rely on
+// (many tools, e.g. java -version, print their version banner to stderr).
+func probeCombined(name string, args ...string) (string, error) {
+	stdout, stderr, err := runner.Run(context.Background(), name, args...)
+	return stdout + stderr, err
+}
+
+// probeStdout runs name+args and returns stdout only, swallowing the error —
+// used for `git config --get` probes where a missing key exits non-zero and
+// we want that reported as an empty value, not a hard failure.
+func probeStdout(name string, args ...string) string {
+	stdout, _, _ := runner.Run(context.Background(), name, args...)
+	return stdout
+}
 
 // Role names. A check with no Roles is "common" — shown to everyone.
 const (
@@ -561,12 +585,12 @@ func buildChecks() []Check {
 // the version from the symlinked package's package.json instead.
 func ngCheck() (bool, string, string, string) {
 	if path, err := exec.LookPath("ng"); err == nil {
-		out, err := exec.Command("ng", "version").CombinedOutput()
+		out, err := probeCombined("ng", "version")
 		if err != nil {
-			return false, "", strings.TrimSpace(string(out)), path
+			return false, "", strings.TrimSpace(out), path
 		}
 		re := regexp.MustCompile(`Angular CLI:\s*(\S+)`)
-		m := re.FindStringSubmatch(string(out))
+		m := re.FindStringSubmatch(out)
 		if len(m) >= 2 {
 			return true, m[1], "", path
 		}
@@ -629,15 +653,15 @@ func versionCheck(bin string, args []string, pattern string) func() (bool, strin
 		if err != nil {
 			return false, "", "", ""
 		}
-		out, err := exec.Command(bin, args...).CombinedOutput()
+		out, err := probeCombined(bin, args...)
 		if err != nil {
-			return false, "", strings.TrimSpace(string(out)), path
+			return false, "", strings.TrimSpace(out), path
 		}
-		m := re.FindStringSubmatch(string(out))
+		m := re.FindStringSubmatch(out)
 		if len(m) >= 2 {
 			return true, m[1], "", path
 		}
-		return true, strings.TrimSpace(string(out)), "", path
+		return true, strings.TrimSpace(out), "", path
 	}
 }
 
@@ -663,18 +687,18 @@ func gitCheck() (bool, string, string, string) {
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("git", "--version").CombinedOutput()
+	out, err := probeCombined("git", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`git version (\S+)`)
 	ver := ""
-	if m := re.FindStringSubmatch(string(out)); len(m) >= 2 {
+	if m := re.FindStringSubmatch(out); len(m) >= 2 {
 		ver = m[1]
 	}
 
-	globalEmail := strings.TrimSpace(stringOf(exec.Command("git", "config", "--global", "--get", "user.email").Output()))
-	globalName := strings.TrimSpace(stringOf(exec.Command("git", "config", "--global", "--get", "user.name").Output()))
+	globalEmail := strings.TrimSpace(probeStdout("git", "config", "--global", "--get", "user.email"))
+	globalName := strings.TrimSpace(probeStdout("git", "config", "--global", "--get", "user.name"))
 
 	var head string
 	switch {
@@ -764,11 +788,11 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			out, err := exec.Command("git", "-C", repoDir, "config", "--get", "user.email").Output()
+			out, _, err := runner.Run(context.Background(), "git", "-C", repoDir, "config", "--get", "user.email")
 			mu.Lock()
 			results = append(results, result{
 				name:      name,
-				effective: strings.TrimSpace(string(out)),
+				effective: strings.TrimSpace(out),
 				ok:        err == nil,
 			})
 			mu.Unlock()
@@ -786,13 +810,6 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 	return overrides, usingGlobal
 }
 
-// stringOf swallows the error from cmd.Output() so we can chain trim — git
-// config returns exit 1 when a key is unset, and we want "missing" reported
-// as empty string, not as a hard failure.
-func stringOf(b []byte, _ error) string {
-	return string(b)
-}
-
 // ghCheck delegates the auth-status portion to internal/auth.GhStatus so that
 // `uq doctor` and `uq auth status` share a single source of truth.
 func ghCheck() (bool, string, string, string) {
@@ -800,12 +817,12 @@ func ghCheck() (bool, string, string, string) {
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("gh", "--version").CombinedOutput()
+	out, err := probeCombined("gh", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`gh version (\S+)`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	ver := ""
 	if len(m) >= 2 {
 		ver = m[1]
@@ -846,16 +863,16 @@ func javaCheck() (bool, string, string, string) {
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("java", "-version").CombinedOutput()
+	out, err := probeCombined("java", "-version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`version "([^"]+)"`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	if len(m) >= 2 {
 		return true, m[1], "", path
 	}
-	return true, strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]), "", path
+	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
 func gcloudCheck() (bool, string, string, string) {
@@ -863,16 +880,16 @@ func gcloudCheck() (bool, string, string, string) {
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("gcloud", "--version").CombinedOutput()
+	out, err := probeCombined("gcloud", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`Google Cloud SDK (\S+)`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	if len(m) >= 2 {
 		return true, m[1], "", path
 	}
-	return true, strings.TrimSpace(strings.SplitN(string(out), "\n", 2)[0]), "", path
+	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
 func dockerCheck() (bool, string, string, string) {
@@ -880,20 +897,20 @@ func dockerCheck() (bool, string, string, string) {
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := exec.Command("docker", "--version").CombinedOutput()
+	out, err := probeCombined("docker", "--version")
 	if err != nil {
-		return false, "", strings.TrimSpace(string(out)), path
+		return false, "", strings.TrimSpace(out), path
 	}
 	re := regexp.MustCompile(`Docker version (\S+?),`)
-	m := re.FindStringSubmatch(string(out))
+	m := re.FindStringSubmatch(out)
 	ver := ""
 	if len(m) >= 2 {
 		ver = strings.TrimSuffix(m[1], ",")
 	} else {
-		ver = strings.TrimSpace(string(out))
+		ver = strings.TrimSpace(out)
 	}
 	// Probe daemon
-	if err := exec.Command("docker", "info").Run(); err != nil {
+	if _, _, err := runner.Run(context.Background(), "docker", "info"); err != nil {
 		return true, ver, "데몬 실행 안 됨", path
 	}
 	return true, ver, "", path

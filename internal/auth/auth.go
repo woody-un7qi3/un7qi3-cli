@@ -6,7 +6,13 @@ import (
 	"errors"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 )
+
+// defaultRunner is the Runner the package-level probes (GhStatus, AwsStatus,
+// GcloudStatus) use in production. Tests exercise the injectable *Status core
+// functions with a fake Runner instead of mutating this.
+var defaultRunner uqexec.Runner = uqexec.Default()
 
 // init teaches the central error classifier that *RequiredError means exit 4.
 // Registering here (rather than importing auth from clierr) keeps clierr free
@@ -20,7 +26,7 @@ func init() {
 
 // Status describes the authentication state of a single provider.
 type Status struct {
-	Name    string `json:"name"`              // "gh", "aws", "gcloud"
+	Name    string `json:"name"` // "gh", "aws", "gcloud"
 	OK      bool   `json:"ok"`
 	User    string `json:"user,omitempty"`    // gh-only
 	Account string `json:"account,omitempty"` // aws account id / gcloud email
