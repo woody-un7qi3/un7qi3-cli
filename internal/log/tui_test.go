@@ -14,7 +14,7 @@ func sendKey(m model, s string) model {
 }
 
 func TestModelLogMsgAppends(t *testing.T) {
-	m := newModel([]Instance{{Num: 1, ID: "i-a"}}, "", "", "")
+	m := newModel([]Lane{{Num: 1, Toggle: "i-a"}}, "", "")
 	nm, _ := m.Update(logMsg{Num: 1, ID: "i-a", Text: "hello", Kind: KindLog})
 	if len(nm.(model).buf) != 1 {
 		t.Fatalf("buf 1 기대, 실제 %d", len(nm.(model).buf))
@@ -22,7 +22,7 @@ func TestModelLogMsgAppends(t *testing.T) {
 }
 
 func TestModelSlashEntersEditing(t *testing.T) {
-	m := newModel(nil, "", "", "")
+	m := newModel(nil, "", "")
 	m = sendKey(m, "/")
 	if !m.editing {
 		t.Error("/ 누르면 편집 모드여야 함")
@@ -30,7 +30,7 @@ func TestModelSlashEntersEditing(t *testing.T) {
 }
 
 func TestModelSpaceTogglesPause(t *testing.T) {
-	m := newModel(nil, "", "", "")
+	m := newModel(nil, "", "")
 	m = sendKey(m, " ")
 	if !m.paused {
 		t.Error("space 누르면 일시정지")
@@ -52,7 +52,7 @@ func TestStatusStylePausedIsRed(t *testing.T) {
 }
 
 func TestModelDigitSolosInstance(t *testing.T) {
-	m := newModel([]Instance{{Num: 2, ID: "i-b"}}, "", "", "")
+	m := newModel([]Lane{{Num: 2, Toggle: "i-b"}}, "", "")
 	m = sendKey(m, "2")
 	if m.solo != 2 {
 		t.Errorf("숫자 키로 솔로(#2) 기대, 실제 solo=%d", m.solo)
@@ -136,7 +136,7 @@ func TestAppendBufDiscardedCount(t *testing.T) {
 // TestModelTracksDiscarded 은 model 이 폐기 누적을 추적하고 View 에 노출하는지
 // 확인한다.
 func TestModelTracksDiscarded(t *testing.T) {
-	m := newModel([]Instance{{Num: 1, ID: "i-a"}}, "", "myapp", "prod")
+	m := newModel([]Lane{{Num: 1, Toggle: "i-a"}}, "", "uq log  myapp · prod")
 	// 뷰포트 준비 (View 가 m.ready 를 요구).
 	nm, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	m = nm.(model)

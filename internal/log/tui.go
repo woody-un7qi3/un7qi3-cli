@@ -34,8 +34,16 @@ func statusStyle(paused bool) lipgloss.Style {
 
 type logMsg LogLine
 
+// Lane 은 TUI 의 한 로그 소스(EB 인스턴스 / run 프로세스). Num 으로 색·솔로를
+// 키잉하고, Toggle 은 헤더 토글·솔로 표시에 쓰는 짧은 라벨이다(EB: 단축 id,
+// run: 프로세스 이름).
+type Lane struct {
+	Num    int
+	Toggle string
+}
+
 type model struct {
-	insts        []Instance
+	lanes        []Lane
 	buf          []LogLine
 	filter       string
 	editing      bool
@@ -44,23 +52,21 @@ type model struct {
 	paused       bool
 	vp           viewport.Model
 	ready        bool
-	app          string
-	env          string
+	title        string // 헤더 좌측 제목 (EB: "uq log app · env", run: "uq run profile")
 	userScrolled bool
 	discarded    int // 링버퍼 상한 초과로 앞에서 폐기된 누적 줄 수
 }
 
-func newModel(insts []Instance, initialFilter, app, env string) model {
+func newModel(lanes []Lane, initialFilter, title string) model {
 	ti := textinput.New()
 	ti.Prompt = ""      // 우리가 "/필터: " 라벨을 직접 붙이므로 기본 "> " 프롬프트 제거
 	ti.Placeholder = "" // 빈 입력 시 placeholder 가 "/필터: " 뒤에 노출되는 혼동 방지
 	ti.SetValue(initialFilter)
 	return model{
-		insts:  insts,
+		lanes:  lanes,
 		filter: initialFilter,
 		input:  ti,
-		app:    app,
-		env:    env,
+		title:  title,
 	}
 }
 
@@ -168,17 +174,17 @@ func (m model) View() string {
 	}
 	status := statusStyle(m.paused).Render(statusLabel)
 	var toggles strings.Builder
-	for _, in := range m.insts {
+	for _, lane := range m.lanes {
 		mark := "✓"
-		if m.solo != 0 && m.solo != in.Num {
+		if m.solo != 0 && m.solo != lane.Num {
 			mark = "✗"
 		}
-		// 각 인스턴스 토글을 그 인스턴스 색으로 — 상단 색과 로그 줄 [#k] 색이 일치.
-		fmt.Fprint(&toggles, colorNum(in.Num, fmt.Sprintf("[#%d %s]", in.Num, shortID(in.ID)))+mark+" ")
+		// 각 소스 토글을 그 소스 색으로 — 상단 색과 로그 줄 [#k] 색이 일치.
+		fmt.Fprint(&toggles, colorNum(lane.Num, fmt.Sprintf("[#%d %s]", lane.Num, lane.Toggle))+mark+" ")
 	}
 	// status 는 자체 색(일시정지=빨강)을 가지므로 headerStyle.Render 안에 끼워넣지
 	// 않고 분리해 이어붙인다 — 바깥 Render 가 색을 덮어쓰는 것을 막는다.
-	header := headerStyle.Render(fmt.Sprintf("uq logs  %s · %s  [", m.app, m.env)) +
+	header := headerStyle.Render(m.title+"  [") +
 		status +
 		headerStyle.Render("]  ") +
 		toggles.String()
@@ -187,7 +193,7 @@ func (m model) View() string {
 	if m.editing {
 		footer = "/필터: " + m.input.View()
 	} else {
-		hints := output.Dim("space=일시정지  1-9=인스턴스  /=필터  g/G=처음/끝  q=종료")
+		hints := output.Dim("space=일시정지  1-9=소스  /=필터  g/G=처음/끝  q=종료")
 		var parts []string
 		// 링버퍼 상한 초과로 오래된 줄이 잘렸음을 알린다 — 사용자가 "처음"(g)으로
 		// 가도 더 앞이 안 보이는 이유를 설명한다. 빨강으로 잘림을 분명히 한다.
@@ -195,16 +201,16 @@ func (m model) View() string {
 			parts = append(parts, statusStyle(true).Render(
 				fmt.Sprintf("%d개 오래된 줄 생략됨", m.discarded)))
 		}
-		// 적용 중인 인스턴스 솔로를 그 인스턴스 색으로 상시 표시.
+		// 적용 중인 소스 솔로를 그 소스 색으로 상시 표시.
 		if m.solo != 0 {
 			label := fmt.Sprintf("#%d", m.solo)
-			for _, in := range m.insts {
-				if in.Num == m.solo {
-					label = fmt.Sprintf("#%d %s", in.Num, shortID(in.ID))
+			for _, lane := range m.lanes {
+				if lane.Num == m.solo {
+					label = fmt.Sprintf("#%d %s", lane.Num, lane.Toggle)
 					break
 				}
 			}
-			parts = append(parts, colorNum(m.solo, "인스턴스: "+label))
+			parts = append(parts, colorNum(m.solo, "소스: "+label))
 		}
 		if m.filter != "" {
 			parts = append(parts, output.Cyan("필터: "+m.filter))
@@ -215,11 +221,21 @@ func (m model) View() string {
 	return header + "\n" + m.vp.View() + "\n" + footer
 }
 
+// LanesFromInstances 는 EB 인스턴스 목록을 TUI Lane 으로 변환한다(토글 라벨은 단축 id).
+func LanesFromInstances(insts []Instance) []Lane {
+	lanes := make([]Lane, len(insts))
+	for i, in := range insts {
+		lanes[i] = Lane{Num: in.Num, Toggle: shortID(in.ID)}
+	}
+	return lanes
+}
+
 // RunTUI 는 채널의 LogLine 을 bubbletea 프로그램에 주입하며 TUI 를 실행한다.
-func RunTUI(ctx context.Context, ch <-chan LogLine, insts []Instance, initialFilter, app, env string) error {
+// lanes 는 소스 토글 목록, title 은 헤더 좌측 제목이다.
+func RunTUI(ctx context.Context, ch <-chan LogLine, lanes []Lane, initialFilter, title string) error {
 	rctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	p := tea.NewProgram(newModel(insts, initialFilter, app, env), tea.WithAltScreen(), tea.WithContext(rctx))
+	p := tea.NewProgram(newModel(lanes, initialFilter, title), tea.WithAltScreen(), tea.WithContext(rctx))
 	go func() {
 		for {
 			select {

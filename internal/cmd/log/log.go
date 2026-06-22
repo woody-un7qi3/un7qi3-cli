@@ -254,7 +254,8 @@ func runLogs(cmd *cobra.Command, opts *logsOptions, repo string, filters []strin
 		tctx, cancel := context.WithCancel(cmd.Context())
 		defer cancel()
 		ch := eblogs.StreamLines(tctx, src, tgt, env, insts, true, lines, opts.grep)
-		return eblogs.RunTUI(tctx, ch, insts, opts.grep, tgt.App, env)
+		return eblogs.RunTUI(tctx, ch, eblogs.LanesFromInstances(insts), opts.grep,
+			fmt.Sprintf("uq log  %s · %s", tgt.App, env))
 	}
 	return eblogs.StreamMerged(cmd.Context(), w, src, tgt, env, insts, !opts.noFollow, lines, opts.grep)
 }
