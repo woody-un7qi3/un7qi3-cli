@@ -222,6 +222,41 @@ func namesOfResults(rs []Result) []string {
 	return out
 }
 
+// TestVisibleLen pins the terminal-width calculation used for column
+// alignment. ASCII=1 and Hangul=2 are the *existing* behavior that must be
+// preserved (the table relies on Hangul headings like "백엔드" lining up);
+// emoji/CJK/ANSI-mixed are the cases the old hand-rolled width miscounted and
+// runewidth now handles.
+func TestVisibleLen(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"빈 문자열", "", 0},
+		{"ASCII", "git", 3},
+		{"ASCII 기호 포함", "node-v18.0.0", 12},
+		// 행위 보존 핵심: 한글은 기존과 동일하게 음절당 2칸.
+		{"한글 음절", "백엔드", 6},
+		{"한글+ASCII 혼합", "공통 git", 8}, // 공(2)+통(2)+공백(1)+git(3)
+		{"한글 자모", "ㄱㄴㄷ", 6},
+		// 새로 올바르게 계산되는 케이스.
+		{"기타 CJK 한자", "中文", 4},
+		{"이모지", "👀", 2},
+		// 글리프(✓)는 width 1 — 기존 default 분기와 동일하게 보존.
+		{"체크 글리프", "✓ git", 5},
+		// ANSI 이스케이프는 폭 계산 전에 제거된다.
+		{"ANSI 래핑", "\033[34m/usr/bin/git\033[0m", 12},
+		{"ANSI + 한글", "\033[2m백엔드\033[0m", 6},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := visibleLen(tc.in); got != tc.want {
+				t.Errorf("visibleLen(%q) = %d, want %d", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func contains(s []string, want string) bool {
 	for _, v := range s {
 		if v == want {

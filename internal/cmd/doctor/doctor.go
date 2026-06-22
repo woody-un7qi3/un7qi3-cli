@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattn/go-runewidth"
 	"github.com/spf13/cobra"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
@@ -377,28 +378,20 @@ func printHuman(cmd *cobra.Command, results []Result, sum Summary) {
 	}
 }
 
-// visibleLen counts the terminal width of s.
+// ansiEscapeRe matches SGR/CSI escape sequences (color, bold, dim, …) so we
+// can strip them before measuring display width — an escape occupies bytes but
+// zero terminal columns.
+var ansiEscapeRe = regexp.MustCompile("\x1b\\[[0-9;]*m")
+
+// visibleLen counts the terminal width of s after stripping ANSI escapes.
 //
-// ASCII = 1 col per rune. Hangul (the only wide script we put in the table)
-// = 2 cols per rune. Everything else is treated as 1 col — good enough for
-// our cells, which are otherwise pure ASCII (versions, paths, tool names).
-//
-// Doctor's table cells never contain ANSI escape codes (those only appear
-// in the dim/blue-wrapped tail column, which is rendered last and needs no
-// alignment), so we don't strip escapes here.
+// runewidth handles every script the table might carry: ASCII = 1 col, Hangul
+// = 2 cols (preserving the previous hand-rolled behavior the column alignment
+// depends on), and East-Asian wide glyphs / emoji / CJK = 2 cols (which the
+// old rune-range switch miscounted as 1). Narrow glyphs like the status marks
+// (✓ ✗) stay 1 col, matching the prior default branch.
 func visibleLen(s string) int {
-	n := 0
-	for _, r := range s {
-		switch {
-		case r >= 0xAC00 && r <= 0xD7A3: // Hangul syllables
-			n += 2
-		case r >= 0x1100 && r <= 0x11FF: // Hangul Jamo
-			n += 2
-		default:
-			n += 1
-		}
-	}
-	return n
+	return runewidth.StringWidth(ansiEscapeRe.ReplaceAllString(s, ""))
 }
 
 // formatSubLines turns a multi-line detail string into a visually aligned
