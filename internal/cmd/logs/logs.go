@@ -14,6 +14,7 @@ import (
 	"golang.org/x/term"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	eblogs "github.com/un7qi3inc/un7qi3-cli/internal/logs"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
@@ -105,11 +106,15 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	}
 	lc, ok := cfg.LogsFor(repo)
 	if !ok {
+		// 사용자용 메시지(글리프·사용 가능한 대상 목록)는 여기서 직접 찍어 형식을
+		// 보존한다. cobra 가 "Error: ..." 를 덧붙이지 않도록 SilenceErrors 를 켜고,
+		// exit code 결정은 main 의 clierr.Classify(=1) 에 맡긴다.
 		fmt.Fprintln(w, output.Red("✗"), repo, "는 logs 미등록입니다. repos.yml 의 logs: 에 추가하세요.")
 		if repos := cfg.LogsRepos(); len(repos) > 0 {
 			fmt.Fprintln(w, "  사용 가능한 대상:", greenRepos(repos))
 		}
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.RepoNotFoundError{Name: repo}
 	}
 
 	// 2. 외부 도구 사전확인 (exit 4) — aws 는 발견 단계 필수, eb 는 스트리밍에만
@@ -132,13 +137,15 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 			}
 		} else {
 			fmt.Fprintln(w, output.Red("✗"), "국가를 특정하세요(예:", strings.Join(codes, "/"), ")")
-			os.Exit(1)
+			cmd.SilenceErrors = true
+			return clierr.PreconditionError{Msg: "국가 미지정"}
 		}
 	}
 	tgt0, ok := lc.Countries[country]
 	if !ok {
 		fmt.Fprintln(w, output.Red("✗"), "알 수 없는 국가:", country)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: "알 수 없는 국가: " + country}
 	}
 	tgt := eblogs.Target{Country: country, App: tgt0.App, Region: tgt0.Region}
 
@@ -147,13 +154,15 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	envs, err := src.Environments(tgt)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
 	matched := eblogs.MatchEnvs(envs, envFilters)
 	env, err := resolveEnv(matched, isTTY)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
 
 	// 4-1. SSH 키 해석 — eb ssh --custom 으로 accept-new 를 주입해 호스트 키 프롬프트를
@@ -167,14 +176,16 @@ func runLogs(cmd *cobra.Command, repo string, filters []string) error {
 	insts, err := src.Instances(tgt, env)
 	if err != nil {
 		fmt.Fprintln(w, output.Red("✗"), err)
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: err.Error()}
 	}
 	if instanceNum > 0 {
 		insts = filterInstance(insts, instanceNum)
 	}
 	if len(insts) == 0 {
 		fmt.Fprintln(w, output.Red("✗"), "대상 인스턴스가 없습니다")
-		os.Exit(1)
+		cmd.SilenceErrors = true
+		return clierr.PreconditionError{Msg: "대상 인스턴스가 없습니다"}
 	}
 
 	// 6. dry-run / split / merged

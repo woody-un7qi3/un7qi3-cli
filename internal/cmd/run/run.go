@@ -25,6 +25,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
@@ -102,9 +103,11 @@ func NewCmd() *cobra.Command {
 			country, err := resolveCountry(profile, dir, countryFlag, label, isTTY, c.OutOrStderr())
 			if err != nil {
 				// 국가 결정/사전 검증 실패는 사용법 에러(2)가 아닌 런타임 에러(1).
-				// doctor/repo 와 같이 RunE 안에서 직접 종료한다.
+				// 메시지는 형식 보존을 위해 직접 찍고, cobra 의 "Error: " 중복을
+				// 막은 뒤 런타임 에러를 반환한다(exit code 는 main 의 Classify=1).
 				fmt.Fprintln(c.OutOrStderr(), output.Red("✗"), err)
-				os.Exit(1)
+				c.SilenceErrors = true
+				return clierr.PreconditionError{Msg: err.Error()}
 			}
 			if country != nil {
 				profile = profile.SubstituteScript(country.Script)
@@ -133,7 +136,8 @@ func NewCmd() *cobra.Command {
 
 			if msg, conflict := portConflictMsg(ports, portStatuses); conflict {
 				fmt.Fprint(c.OutOrStderr(), msg)
-				os.Exit(1)
+				c.SilenceErrors = true
+				return clierr.PreconditionError{Msg: "포트 충돌"}
 			}
 
 			mode, err := chooseMode(fgFlag, bgFlag, splitFlag, isTTY, procNames(profile.Procs))
@@ -152,10 +156,19 @@ func NewCmd() *cobra.Command {
 				}
 				// 단일 프로세스는 분할 대상이 없다 — 일반 포그라운드로.
 			}
+			var runErr error
 			if len(profile.Procs) > 0 {
-				return execMulti(dir, profile.Procs, env)
+				runErr = execMulti(dir, profile.Procs, env)
+			} else {
+				runErr = execSingle(dir, profile.Cmd, env)
 			}
-			return execSingle(dir, profile.Cmd, env)
+			// 자식 프로세스가 비정상 종료하면 그 종료 코드를 그대로 전달한다.
+			// 자식이 이미 자기 출력을 냈으므로 cobra 의 "Error: ..." 는 덧붙이지 않는다.
+			var coded clierr.ExitCodeError
+			if errors.As(runErr, &coded) {
+				c.SilenceErrors = true
+			}
+			return runErr
 		},
 	}
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "실제 실행 없이 풀어진 cmd/env/PATH 만 출력")
@@ -519,8 +532,9 @@ func printDryRun(w io.Writer, repo, profile, dir, branch string, p repocfg.Profi
 
 // execSingle runs cmd[0] cmd[1:] in dir with the given env, sharing the
 // current TTY. SIGINT (Ctrl+C) is forwarded to the child's process group so
-// dev servers can shut down cleanly. Non-zero exit codes are propagated via
-// os.Exit.
+// dev servers can shut down cleanly. A non-zero child exit is propagated as a
+// clierr.ExitCodeError so main can mirror the child's exact exit code while
+// the RunE-level defers still run.
 func execSingle(dir string, cmd []string, env []string) error {
 	c := osexec.Command(cmd[0], cmd[1:]...)
 	c.Dir = dir
@@ -552,7 +566,7 @@ func execSingle(dir string, cmd []string, env []string) error {
 			}
 			var exitErr *osexec.ExitError
 			if errors.As(err, &exitErr) {
-				os.Exit(exitErr.ExitCode())
+				return clierr.ExitCodeError{Code: exitErr.ExitCode()}
 			}
 			return err
 		}

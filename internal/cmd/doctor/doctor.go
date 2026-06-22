@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
+	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
 )
@@ -153,7 +154,11 @@ func NewCmd() *cobra.Command {
 			}
 
 			if sum.Failed > 0 {
-				os.Exit(1)
+				// 리포트 자체가 이미 사람/JSON 으로 출력됐다. 추가 메시지 없이
+				// 실패를 알리는 런타임 에러만 반환하고, cobra 의 "Error: ..." 는
+				// 막는다(exit code 는 main 의 Classify=1).
+				cmd.SilenceErrors = true
+				return clierr.PreconditionError{Msg: fmt.Sprintf("%d개 점검 실패", sum.Failed)}
 			}
 			return nil
 		},
