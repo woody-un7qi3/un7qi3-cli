@@ -162,14 +162,18 @@ func NewCmd() *cobra.Command {
 				}
 				// 단일 프로세스는 분할 대상이 없다 — 일반 포그라운드로.
 			}
-			// 멀티프로세스 + 인터랙티브 터미널이면 uq log 와 동일한 공유 TUI 로 통합해
-			// 보여준다. 출력이 파이프/리다이렉트면(둘 중 하나라도 비TTY) prefix 평문으로 폴백.
+			// 인터랙티브 터미널이면 단일·멀티 모두 uq log 와 동일한 공유 TUI 로 통합해
+			// 보여준다(단일은 합성 proc 1개로 취급). 출력이 파이프/리다이렉트면(둘 중
+			// 하나라도 비TTY) 기존 평문 경로로 폴백 — 단일은 stdin 연결도 유지된다.
 			useTUI := isTTY && term.IsTerminal(int(os.Stdout.Fd()))
+			title := fmt.Sprintf("uq run  %s:%s", repoName, resolvedName)
 			var runErr error
 			switch {
-			case len(profile.Procs) > 0 && useTUI:
-				runErr = execMultiTUI(c.Context(), dir, profile.Procs, env,
-					fmt.Sprintf("uq run  %s:%s", repoName, resolvedName))
+			case useTUI && len(profile.Procs) > 0:
+				runErr = execTUI(c.Context(), dir, profile.Procs, env, title)
+			case useTUI:
+				runErr = execTUI(c.Context(), dir,
+					[]repocfg.Proc{{Name: resolvedName, Cmd: profile.Cmd}}, env, title)
 			case len(profile.Procs) > 0:
 				runErr = execMulti(c.Context(), dir, profile.Procs, env)
 			default:
@@ -752,13 +756,14 @@ type procResult struct {
 	err  error
 }
 
-// execMultiTUI 는 멀티프로세스 로그를 uq log 와 동일한 공유 TUI 로 띄운다(TTY 전용).
+// execTUI 는 1개 이상의 프로세스 로그를 uq log 와 동일한 공유 TUI 로 띄운다(TTY 전용).
 // 각 proc 의 stdout/stderr 를 라인 단위로 읽어 LogLine 채널로 흘리고, 그 채널을
 // eblogs.RunTUI 에 주입한다. proc N → 소스 #N(토글 라벨=proc 이름).
 //
 // 사용자가 q/Ctrl+C 로 TUI 를 닫거나 ctx 가 취소되면 RunTUI 가 반환하며, 그때
 // 모든 자식 그룹에 SIGINT 를 보내 정리한다. 채널은 스캐너가 모두 끝나면 닫힌다.
-func execMultiTUI(ctx context.Context, repoDir string, procs []repocfg.Proc, env []string, title string) error {
+// 단일 프로세스도 stdin 은 TUI 가 점유하므로 자식에 연결되지 않는다(핫키 미지원).
+func execTUI(ctx context.Context, repoDir string, procs []repocfg.Proc, env []string, title string) error {
 	lanes := make([]eblogs.Lane, len(procs))
 	for i, p := range procs {
 		lanes[i] = eblogs.Lane{Num: i + 1, Toggle: p.Name}
@@ -833,25 +838,22 @@ func execMultiTUI(ctx context.Context, repoDir string, procs []repocfg.Proc, env
 
 	tuiErr := eblogs.RunTUI(ctx, ch, lanes, "", title)
 
-	// TUI 가 닫혔다 → 남은 출력을 비워 스캐너가 채널에 막히지 않게 하고, 자식들을 정리한다.
+	// TUI 가 닫혔다(q/Ctrl+C/ctx 취소) → 남은 출력을 비워 스캐너가 채널에 막히지
+	// 않게 하고, 자식 그룹을 SIGINT 로 정리한 뒤 reap 한다. 사용자가 의도적으로
+	// 닫은 것이므로 이때의 자식 종료(신호로 인한)는 실패로 취급하지 않는다.
 	go func() {
 		for range ch {
 		}
 	}()
 	killGroups(syscall.SIGINT)
-
-	var firstFailure error
 	for range pids {
-		r := <-done
-		// ctx 취소(사용자 종료)로 인한 종료 에러는 실패로 보지 않는다.
-		if r.err != nil && firstFailure == nil && ctx.Err() == nil {
-			firstFailure = fmt.Errorf("%s: %w", r.name, r.err)
-		}
+		<-done
 	}
-	if tuiErr != nil {
+	// 렌더링 자체가 실패한 경우만 에러로 surface 한다(q/시그널 종료는 정상 종료).
+	if tuiErr != nil && ctx.Err() == nil {
 		return tuiErr
 	}
-	return firstFailure
+	return nil
 }
 
 // scanInto 는 r 을 라인 단위로 읽어 소스 번호 num 의 LogLine 으로 채널에 보낸다.
