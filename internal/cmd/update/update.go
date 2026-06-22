@@ -1,6 +1,6 @@
-// Package upgrade implements the `uq upgrade` command: GitHub Releases 기반
+// Package update implements the `uq update` command: GitHub Releases 기반
 // 자기 업데이트. 비공개 레포여도 동작하도록 다운로드는 gh CLI 를 경유한다.
-package upgrade
+package update
 
 import (
 	"encoding/json"

@@ -12,11 +12,11 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/doctor"
 	envcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/env"
 	initcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/initcmd"
-	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/logs"
+	logcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/log"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/repo"
 	runcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/run"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/skills"
-	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/upgrade"
+	updatecmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/update"
 	versioncmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/version"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
@@ -144,11 +144,11 @@ func init() {
 
 	// 배포 & 운영
 	rootCmd.AddCommand(inGroup(deploy.NewCmd(), groupOps))
-	rootCmd.AddCommand(inGroup(logs.NewCmd(), groupOps))
+	rootCmd.AddCommand(inGroup(logcmd.NewCmd(), groupOps))
 
 	// 도구 — uq 자체 메타/유지보수 + 유틸
 	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupTools))
-	rootCmd.AddCommand(inGroup(upgrade.NewCmd(), groupTools))
+	rootCmd.AddCommand(inGroup(updatecmd.NewCmd(), groupTools))
 	// skills 는 아직 미지원(stub)이라 --help 에서 숨긴다. 명령 자체는 남겨두어
 	// `uq skills` 직접 호출은 가능하지만, 안정화 전까지 목록에 노출하지 않는다.
 	skillsCmd := inGroup(skills.NewCmd(), groupTools)

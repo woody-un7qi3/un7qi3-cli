@@ -1,5 +1,5 @@
-// Package logs implements the `uq logs <repo>` command.
-package logs
+// Package log implements the `uq log <repo>` command.
+package log
 
 import (
 	"context"
