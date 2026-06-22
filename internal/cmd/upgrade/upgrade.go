@@ -3,6 +3,7 @@
 package upgrade
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,9 +55,9 @@ func runUpgrade(cmd *cobra.Command) error {
 		return &authpkg.RequiredError{Msg: "gh 인증 안 됨. `gh auth login` 실행"}
 	}
 
-	// 2. 최신 릴리즈 태그 조회
+	// 2. 최신 릴리즈 태그 + 릴리즈 노트(body) 조회 — 한 번의 호출로 함께 받는다.
 	out, err := uqexec.Run("gh", "release", "view", "--repo", releaseRepo,
-		"--json", "tagName", "--jq", ".tagName")
+		"--json", "tagName,body")
 	if err != nil {
 		// 릴리즈가 하나도 없으면 gh 가 "release not found" 로 종료한다 — 에러가 아닌
 		// 정상 상태로 안내한다.
@@ -66,7 +67,14 @@ func runUpgrade(cmd *cobra.Command) error {
 		}
 		return fmt.Errorf("최신 릴리즈 조회 실패: %w", err)
 	}
-	latest := strings.TrimSpace(string(out))
+	var rel struct {
+		TagName string `json:"tagName"`
+		Body    string `json:"body"`
+	}
+	if err := json.Unmarshal(out, &rel); err != nil {
+		return fmt.Errorf("릴리즈 정보 파싱 실패: %w", err)
+	}
+	latest := strings.TrimSpace(rel.TagName)
 	if latest == "" {
 		fmt.Fprintln(w, "발행된 릴리즈가 없습니다.")
 		return nil
@@ -86,7 +94,7 @@ func runUpgrade(cmd *cobra.Command) error {
 	}
 
 	asset := assetName(runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(w, "%s → %s 업그레이드 중… (%s)\n", version.Version, latest, asset)
+	fmt.Fprintf(w, "%s → %s 업그레이드 중…\n", version.Version, latest)
 
 	// 4. 같은 디렉터리에 임시 다운로드 후 rename (동일 파일시스템 → 원자적)
 	tmp := exe + ".new"
@@ -104,6 +112,9 @@ func runUpgrade(cmd *cobra.Command) error {
 	}
 
 	fmt.Fprintf(w, "%s 업그레이드 완료: %s\n", output.Green("✓"), latest)
+	if notes := strings.TrimSpace(rel.Body); notes != "" {
+		fmt.Fprintf(w, "\n%s\n%s\n", output.Bold(latest+" 변경 내역:"), output.Desc(notes))
+	}
 	return nil
 }
 
