@@ -35,17 +35,31 @@ type NodeResolution struct {
 // produces a matching version wins. Failure returns an error with install
 // hints in Korean.
 func ResolveNode(want string) (NodeResolution, error) {
+	// 정확/접두 핀("16","20.5")은 매니저 우선(고정 버전 의도). 범위 제약(">=18")은
+	// 현재 PATH 의 node 가 충족하면 그대로 쓰는 게 자연스럽다 — 보통 그게 nvm/fnm
+	// 의 default 라서 전환 없이 사용자의 활성 node 를 존중한다. PATH 가 부족할 때만
+	// 매니저에 설치된 충족 버전 중 가장 높은 것을 고른다.
 	detectors := []func(string) (NodeResolution, bool){
-		detectFnm,
-		detectNvm,
-		detectMise,
-		detectAsdf,
-		detectPath,
+		detectFnm, detectNvm, detectMise, detectAsdf, detectPath,
+	}
+	if isRange(want) {
+		detectors = []func(string) (NodeResolution, bool){
+			detectPath, detectFnm, detectNvm, detectMise, detectAsdf,
+		}
 	}
 	for _, d := range detectors {
 		if r, ok := d(want); ok {
 			return r, nil
 		}
+	}
+	if isRange(want) {
+		return NodeResolution{}, fmt.Errorf(
+			"Node %s 를 만족하는 버전을 찾지 못했습니다. 최신 LTS 를 설치하세요:\n"+
+				"  fnm install --lts     # 권장\n"+
+				"  nvm install --lts\n"+
+				"  mise use -g node@lts",
+			want,
+		)
 	}
 	return NodeResolution{}, fmt.Errorf(
 		"Node %s 을(를) 찾지 못했습니다. 다음 중 하나로 설치하세요:\n"+
@@ -54,6 +68,11 @@ func ResolveNode(want string) (NodeResolution, error) {
 			"  mise install node@%s",
 		displayWant(want), displayWant(want), displayWant(want), displayWant(want),
 	)
+}
+
+// isRange 는 want 가 최소 버전 제약(">=N") 표현인지 판단한다.
+func isRange(want string) bool {
+	return strings.HasPrefix(want, ">=")
 }
 
 func displayWant(want string) string {
@@ -71,6 +90,10 @@ func versionMatches(got, want string) bool {
 		return true
 	}
 	got = strings.TrimPrefix(got, "v")
+	// 최소 버전 제약 ">=N": got 이 N 이상이면 충족.
+	if min, ok := strings.CutPrefix(want, ">="); ok {
+		return !versionLess(got, strings.TrimSpace(min))
+	}
 	want = strings.TrimPrefix(want, "v")
 	gp := strings.Split(got, ".")
 	wp := strings.Split(want, ".")
