@@ -46,12 +46,12 @@ runs:
               - label: "kr"
                 anchor: "kr: {"
                 options:
-                  - { label: "개발 (주소 입력)", match: "apiUrl: '{url}'", default: "https://api-dev.gc.forceteller.com" }
+                  - { label: "개발 (https://api-dev.gc.forceteller.com)", match: "apiUrl: 'https://api-dev.gc.forceteller.com'" }
                   - { label: "로컬 (포트 입력)", match: "apiUrl: 'http://localhost:{port}'", default: "9200" }
               - label: "jp"
                 anchor: "jp: {"
                 options:
-                  - { label: "개발 (주소 입력)", match: "apiUrl: '{url}'", default: "https://api-dev.gc.forceteller.jp" }
+                  - { label: "개발 (https://api-dev.gc.forceteller.jp)", match: "apiUrl: 'https://api-dev.gc.forceteller.jp'" }
                   - { label: "로컬 (포트 입력)", match: "apiUrl: 'http://localhost:{port}'", default: "9200" }
 
   forceteller-admin:
