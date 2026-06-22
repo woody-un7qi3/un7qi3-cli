@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.3](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.2...v0.1.3) (2026-06-22)
+
+
+### 기능
+
+* **upgrade:** 릴리즈 노트를 터미널 평문으로 렌더링 ([17b06a4](https://github.com/woody-un7qi3/un7qi3-cli/commit/17b06a423e810cc7e692b379523dc05a7a7f73a3))
+* **upgrade:** 업그레이드 후 릴리즈 노트 출력 및 진행 표시 정리 ([ae3fb2a](https://github.com/woody-un7qi3/un7qi3-cli/commit/ae3fb2ade5bb79e3077d2cc12845e875ab07e8b4))
+
 ## [0.1.2](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.1...v0.1.2) (2026-06-22)
 
 
