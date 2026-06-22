@@ -55,11 +55,11 @@ func NewCmd() *cobra.Command {
 		output.Desc("멀티프로세스 프로파일(예: forceteller-admin)은 ") + output.Cyan("uq log") + output.Desc(" 와 동일한 통합 TUI 로 보여줍니다(1-9=프로세스 솔로, /=필터). 파이프 출력 시 [name] 평문."),
 		"",
 		output.Heading("예시"),
+		output.HelpExample("uq run list", "프로파일 골라 실행 (대화형)"),
 		output.HelpExample("uq run forceteller-app", "default 프로파일"),
 		output.HelpExample("uq run forceteller-app:app3", "프로파일 명시"),
 		output.HelpExample("uq run forceteller-admin", "back + front 동시 실행"),
 		output.HelpExample("uq run forceteller-app --dry-run", "실제 실행 없이 풀어진 cmd/env 확인"),
-		output.HelpExample("uq run list", "프로파일 골라 실행 (대화형)"),
 		output.HelpExample("uq run targets", "등록된 프로파일 나열 (사람용)"),
 		output.HelpExample("uq run targets --json", "에이전트/자동화용 머신 출력"),
 	}, "\n")
