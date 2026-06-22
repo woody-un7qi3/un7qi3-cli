@@ -44,15 +44,16 @@ func NewCmd() *cobra.Command {
 		output.Desc("국가·환경은 위치인자로 지정하거나, 대상만 주면 대화형으로 고른 뒤 TUI 뷰어로 진입합니다."),
 		"",
 		output.Heading("예시"),
-		output.HelpExample("uq logs forceteller-api", "국가·환경 대화형 선택 → TUI 뷰어"),
-		output.HelpExample("uq logs forceteller-api kr beta", "kr beta 환경 전체 인스턴스"),
-		output.HelpExample("uq logs forceteller-api kr", "kr 환경 대화형 선택"),
-		output.HelpExample("uq logs forceteller-api kr beta --split", "인스턴스별 패널 분리"),
-		output.HelpExample("uq logs forceteller-api kr beta --grep ERROR", "ERROR 패턴만 필터"),
-		output.HelpExample("uq logs forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
+		output.HelpExample("uq log forceteller-api", "국가·환경 대화형 선택 → TUI 뷰어"),
+		output.HelpExample("uq log forceteller-api kr beta", "kr beta 환경 전체 인스턴스"),
+		output.HelpExample("uq log forceteller-api kr", "kr 환경 대화형 선택"),
+		output.HelpExample("uq log forceteller-api kr beta --split", "인스턴스별 패널 분리"),
+		output.HelpExample("uq log forceteller-api kr beta --grep ERROR", "ERROR 패턴만 필터"),
+		output.HelpExample("uq log forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
+		output.HelpExample("uq log targets", "등록된 log 대상 나열 (--json 으로 기계 출력)"),
 	}, logsReposSection()...), "\n")
 	cmd := &cobra.Command{
-		Use:   "logs <대상> [필터...]",
+		Use:   "log <대상> [필터...]",
 		Short: "EB 인스턴스 멀티플렉스 로그 스트리밍",
 		Long:  long,
 		Args:  cobra.MinimumNArgs(1),
@@ -68,6 +69,7 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&opts.dryRun, "dry-run", false, "해석된 app/region/환경/명령만 출력")
 	cmd.Flags().BoolVar(&opts.plain, "plain", false, "TTY 라도 평문 스트리밍 강제 (TUI 끄기)")
 	cmd.MarkFlagsMutuallyExclusive("split", "no-follow")
+	cmd.AddCommand(newTargetsCmd())
 	return cmd
 }
 

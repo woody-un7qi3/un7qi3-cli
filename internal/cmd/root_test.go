@@ -93,7 +93,8 @@ func TestJSONFlagScopedToSupportingCommands(t *testing.T) {
 
 	supporting := [][]string{
 		{"doctor"}, {"version"},
-		{"auth", "status"}, {"repo", "list"}, {"repo", "clone"}, {"run", "profiles"},
+		{"auth", "status"}, {"repo", "list"}, {"repo", "clone"},
+		{"run", "profiles"}, {"log", "targets"},
 	}
 	for _, path := range supporting {
 		c := findCmdByPath(t, path)
@@ -102,13 +103,14 @@ func TestJSONFlagScopedToSupportingCommands(t *testing.T) {
 		}
 	}
 
-	// 미지원 명령(logs)은 --json 을 상속하지도, 로컬로 갖지도 않아야 한다.
-	logs := findCmdByPath(t, []string{"logs"})
+	// 미지원 명령(log)은 --json 을 상속하지도, 로컬로 갖지도 않아야 한다.
+	// (--json 은 하위 log targets 에만 있고 부모 log 로 올라오지 않는다.)
+	logs := findCmdByPath(t, []string{"log"})
 	if logs.InheritedFlags().Lookup("json") != nil {
-		t.Error("logs 가 --json 을 상속하면 안 된다")
+		t.Error("log 가 --json 을 상속하면 안 된다")
 	}
 	if logs.LocalFlags().Lookup("json") != nil {
-		t.Error("logs 에 로컬 --json 이 있으면 안 된다")
+		t.Error("log 에 로컬 --json 이 있으면 안 된다")
 	}
 }
 

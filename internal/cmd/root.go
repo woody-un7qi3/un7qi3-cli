@@ -84,7 +84,7 @@ var rootCmd = &cobra.Command{
 		output.HelpExample("uq init", "최초 설정"),
 		output.HelpExample("uq run <repo>", "레포의 로컬 개발 서버 실행"),
 		output.HelpExample("uq repo clone <name>", "워크스페이스에 레포 클론"),
-		output.HelpExample("uq logs <repo>", "EB 인스턴스 로그 스트리밍"),
+		output.HelpExample("uq log <repo>", "EB 인스턴스 로그 스트리밍"),
 	}, "\n"),
 	SilenceUsage:  true,
 	SilenceErrors: false,
