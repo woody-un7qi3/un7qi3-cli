@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -112,10 +113,46 @@ func runUpgrade(cmd *cobra.Command) error {
 	}
 
 	fmt.Fprintf(w, "%s 업그레이드 완료: %s\n", output.Green("✓"), latest)
-	if notes := strings.TrimSpace(rel.Body); notes != "" {
+	if notes := formatReleaseNotes(rel.Body); notes != "" {
 		fmt.Fprintf(w, "\n%s\n%s\n", output.Bold(latest+" 변경 내역:"), output.Desc(notes))
 	}
 	return nil
+}
+
+// reMarkdownLink 은 마크다운 링크 [텍스트](url) 에서 텍스트만 남긴다.
+// reCommitRef 는 release-please 가 항목 끝에 붙이는 커밋 링크 ([해시](url)) 를 제거한다.
+var (
+	reMarkdownLink = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
+	reCommitRef    = regexp.MustCompile(`\s*\(\[[0-9a-f]{7,40}\]\([^)]*\)\)\s*$`)
+)
+
+// formatReleaseNotes 는 release-please 의 마크다운 릴리즈 본문을 터미널에서 읽기
+// 좋은 평문으로 바꾼다. 버전 제목(## …)은 호출부가 이미 출력하므로 버리고,
+// 섹션 제목(### …)은 헤더 줄로, 항목(* / -)은 "· " 불릿으로 바꾼다. 끝에 붙는
+// 커밋 해시 링크와 본문 안 마크다운 링크는 텍스트만 남기고 제거한다.
+func formatReleaseNotes(body string) string {
+	var out []string
+	for _, raw := range strings.Split(body, "\n") {
+		line := strings.TrimSpace(raw)
+		switch {
+		case line == "" || strings.HasPrefix(line, "## "):
+			continue
+		case strings.HasPrefix(line, "###"):
+			section := strings.TrimSpace(strings.TrimLeft(line, "#"))
+			if len(out) > 0 {
+				out = append(out, "")
+			}
+			out = append(out, section)
+		case strings.HasPrefix(line, "* "), strings.HasPrefix(line, "- "):
+			item := strings.TrimSpace(line[1:])
+			item = reCommitRef.ReplaceAllString(item, "")
+			item = reMarkdownLink.ReplaceAllString(item, "$1")
+			out = append(out, "· "+item)
+		default:
+			out = append(out, reMarkdownLink.ReplaceAllString(line, "$1"))
+		}
+	}
+	return strings.Join(out, "\n")
 }
 
 // needsUpgrade 는 현재 버전과 최신 태그를 비교해 업그레이드가 필요한지 판단한다.
