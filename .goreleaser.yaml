@@ -32,8 +32,10 @@ archives:
 checksum:
   name_template: "checksums.txt"
 
+# release-please 가 만든 한글 CHANGELOG 가 릴리즈 본문의 정본이다.
+# GoReleaser 는 changelog 를 따로 만들지 않아 raw 커밋 목록이 덧붙지 않게 한다.
 changelog:
-  use: github
+  disable: true
 
 release:
   # owner/name 미지정 → 원격에서 추론.
