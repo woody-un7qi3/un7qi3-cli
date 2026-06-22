@@ -94,7 +94,7 @@ func TestJSONFlagScopedToSupportingCommands(t *testing.T) {
 	supporting := [][]string{
 		{"doctor"}, {"version"},
 		{"auth", "status"}, {"repo", "list"}, {"repo", "clone"},
-		{"run", "profiles"}, {"log", "targets"},
+		{"run", "targets"}, {"log", "targets"},
 	}
 	for _, path := range supporting {
 		c := findCmdByPath(t, path)

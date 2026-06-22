@@ -59,8 +59,9 @@ func NewCmd() *cobra.Command {
 		output.HelpExample("uq run forceteller-app:app3", "프로파일 명시"),
 		output.HelpExample("uq run forceteller-admin", "back + front 동시 실행"),
 		output.HelpExample("uq run forceteller-app --dry-run", "실제 실행 없이 풀어진 cmd/env 확인"),
-		output.HelpExample("uq run profiles", "등록된 프로파일 나열 (사람용)"),
-		output.HelpExample("uq run profiles --json", "에이전트/자동화용 머신 출력"),
+		output.HelpExample("uq run list", "프로파일 골라 실행 (대화형)"),
+		output.HelpExample("uq run targets", "등록된 프로파일 나열 (사람용)"),
+		output.HelpExample("uq run targets --json", "에이전트/자동화용 머신 출력"),
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "run <repo>[:profile]",
@@ -191,8 +192,72 @@ func NewCmd() *cobra.Command {
 	cmd.Flags().StringVar(&countryFlag, "country", "", "국가 선택 (예: kr/en/jp — countries 가 선언된 프로파일에서만)")
 	cmd.MarkFlagsMutuallyExclusive("bg", "fg")
 	cmd.MarkFlagsMutuallyExclusive("bg", "split")
-	cmd.AddCommand(newProfilesCmd())
+	cmd.AddCommand(newTargetsCmd())
+	cmd.AddCommand(newRunListCmd(cmd))
 	return cmd
+}
+
+// newRunListCmd 은 `uq run list` 서브명령을 만든다. 등록된 프로파일을 대화형으로
+// 고른 뒤 그대로 실행한다(uq log list 와 동일한 패턴, 비TTY 면 거절). 선택 후에는
+// 부모 run 명령의 RunE 를 재사용해 동일한 실행 흐름(국가·포트·모드·exec)을 탄다.
+func newRunListCmd(parent *cobra.Command) *cobra.Command {
+	return &cobra.Command{
+		Use:   "list",
+		Short: "프로파일을 대화형으로 골라 실행",
+		Long: strings.Join([]string{
+			output.Desc("등록된 run 프로파일을 대화형으로 고른 뒤 그대로 실행합니다."),
+			output.Desc("프로파일 이름이 기억나지 않을 때 첫 단계부터 안내합니다."),
+			"",
+			output.Heading("예시"),
+			output.HelpExample("uq run list", "프로파일 골라 실행"),
+		}, "\n"),
+		Args: cobra.NoArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			if !term.IsTerminal(int(os.Stdin.Fd())) {
+				return clierr.PreconditionError{Msg: "uq run list 는 대화형 터미널에서만 동작합니다 — `uq run <repo>[:profile]` 를 쓰세요"}
+			}
+			cfg, err := repocfg.Load()
+			if err != nil {
+				return err
+			}
+			reposDir, err := config.ReposDir()
+			if err != nil {
+				return err
+			}
+			profiles := collectProfiles(cfg, reposDir, "")
+			if len(profiles) == 0 {
+				fmt.Fprintln(c.OutOrStderr(), output.Dim("(등록된 프로파일 없음)"))
+				return nil
+			}
+			target, err := pickProfile(profiles)
+			if err != nil {
+				return err
+			}
+			return parent.RunE(c, []string{target})
+		},
+	}
+}
+
+// pickProfile 은 TTY 에서 repo:profile 을 선택받는다. 반환값은 uq run 인자 형식.
+func pickProfile(profiles []profileJSON) (string, error) {
+	opts := make([]huh.Option[string], 0, len(profiles))
+	for _, p := range profiles {
+		target := p.Repo + ":" + p.Name
+		label := target
+		if p.Default {
+			label += "  (default)"
+		}
+		opts = append(opts, huh.NewOption(label, target))
+	}
+	choice := profiles[0].Repo + ":" + profiles[0].Name
+	if err := huh.NewSelect[string]().
+		Title("실행할 프로파일 선택").
+		Options(opts...).
+		Value(&choice).
+		Run(); err != nil {
+		return "", err
+	}
+	return choice, nil
 }
 
 type runMode int

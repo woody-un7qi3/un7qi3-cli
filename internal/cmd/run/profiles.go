@@ -59,7 +59,7 @@ type profilesOutput struct {
 	Profiles []profileJSON `json:"profiles"`
 }
 
-func newProfilesCmd() *cobra.Command {
+func newTargetsCmd() *cobra.Command {
 	long := strings.Join([]string{
 		output.Desc("등록된 ") + output.Cyan("uq run") + output.Desc(" 프로파일을 나열합니다."),
 		"",
@@ -67,13 +67,13 @@ func newProfilesCmd() *cobra.Command {
 		output.Desc("repo 이름을 지정하면 그 repo 의 프로파일만 표시합니다."),
 		"",
 		output.Heading("예시"),
-		output.HelpExample("uq run profiles", "전체 프로파일 (사람용 표)"),
-		output.HelpExample("uq run profiles --json", "전체 (JSON, 안정 스키마)"),
-		output.HelpExample("uq run profiles forceteller-admin", "특정 repo 만"),
-		output.HelpExample("uq run profiles --json | jq '.profiles[]|select(.default)'", "default 만"),
+		output.HelpExample("uq run targets", "전체 프로파일 (사람용 표)"),
+		output.HelpExample("uq run targets --json", "전체 (JSON, 안정 스키마)"),
+		output.HelpExample("uq run targets forceteller-admin", "특정 repo 만"),
+		output.HelpExample("uq run targets --json | jq '.profiles[]|select(.default)'", "default 만"),
 	}, "\n")
 	cmd := &cobra.Command{
-		Use:   "profiles [repo]",
+		Use:   "targets [repo]",
 		Short: "등록된 run 프로파일 나열",
 		Long:  long,
 		Args:  cobra.MaximumNArgs(1),
