@@ -25,10 +25,12 @@ runs:
         # React 18 + Ionic React 7 + Vite 5 → node 18+ 필요(Vite 5 는 16 미지원).
         # ">=18" 로 두어 팀원이 가진 18/20/22 중 활성 node(보통 nvm/fnm default)를
         # 그대로 쓴다. 18+ 이면 yarn 4.5 게이트도 통과하므로 YARN_IGNORE_NODE 불필요.
+        desc: "en"
         cmd: ["yarn", "start"] # ionic serve -p 3000 --project=app
         node: ">=18"
         url: "http://localhost:3000"
       app3:
+        desc: "kr, jp"
         cmd: ["yarn", "start:app3"] # ionic serve -c dev -p 3100 --project=app3
         node: "16"
         url: "http://localhost:3100"

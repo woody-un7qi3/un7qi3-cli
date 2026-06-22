@@ -61,6 +61,9 @@ type Profile struct {
 	Procs []Proc            `yaml:"procs,omitempty"`
 	Node  string            `yaml:"node,omitempty"`
 	Env   map[string]string `yaml:"env,omitempty"`
+	// Desc 는 프로파일의 짧은 용도 설명(예: 로케일 "kr, jp"). 선택 picker·목록에
+	// 표시용으로만 쓰이고 실행에는 영향이 없다.
+	Desc string `yaml:"desc,omitempty"`
 	// URL is the address the dev server listens on (single-cmd profiles).
 	// Printed in the header so users know where to navigate once compile is done.
 	URL string `yaml:"url,omitempty"`

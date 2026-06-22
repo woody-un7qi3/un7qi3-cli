@@ -30,6 +30,7 @@ type profileJSON struct {
 	Repo    string            `json:"repo"`
 	Name    string            `json:"name"`
 	Default bool              `json:"default"`
+	Desc    string            `json:"desc,omitempty"`
 	Cwd     string            `json:"cwd"`
 	Node    string            `json:"node,omitempty"`
 	Env     map[string]string `json:"env,omitempty"`
@@ -152,6 +153,7 @@ func collectProfiles(cfg *repocfg.Config, reposDir, filterRepo string) []profile
 				Repo:    repo,
 				Name:    name,
 				Default: isDefault,
+				Desc:    p.Desc,
 				Cwd:     repoCwd,
 				Node:    p.Node,
 				Env:     p.Env,

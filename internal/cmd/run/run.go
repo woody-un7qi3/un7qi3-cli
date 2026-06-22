@@ -274,6 +274,9 @@ func pickProfile(profiles []profileJSON) (string, error) {
 		if p.Default {
 			labels[i] += "  (default)"
 		}
+		if p.Desc != "" {
+			labels[i] += "  · " + p.Desc
+		}
 		values[i] = p.Name
 	}
 	name, err := pickOne(repo+" — 프로파일 선택", labels, values)
