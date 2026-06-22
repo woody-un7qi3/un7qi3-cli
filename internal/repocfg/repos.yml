@@ -29,6 +29,17 @@ runs:
         cmd: ["yarn", "start"] # ionic serve -p 3000 --project=app
         node: ">=18"
         url: "http://localhost:3000"
+        # en 앱의 API 서버 토글(env.development.ts 의 api 필드 직접 수정).
+        switches:
+          - name: "API 서버"
+            file: "projects/forceteller-app/src/config/environments/env.development.ts"
+            scopes:
+              - label: "en"
+                anchor: "en: {"
+                options:
+                  - { label: "개발 (https://api-dev-en.gc.forceteller.com)", match: "api: 'https://api-dev-en.gc.forceteller.com'" }
+                  - { label: "로컬 (9200)", match: "api: 'http://localhost:9200'" }
+                  - { label: "포트 입력", match: "api: 'http://localhost:{port}'", default: "9200" }
       app3:
         desc: "kr, jp"
         cmd: ["yarn", "start:app3"] # ionic serve -c dev -p 3100 --project=app3
