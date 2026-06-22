@@ -59,17 +59,36 @@ func StreamLines(ctx context.Context, src Source, t Target, env string,
 			sc := bufio.NewScanner(pr)
 			sc.Buffer(make([]byte, 4096), 1024*1024)
 			for sc.Scan() {
-				ch <- LogLine{Num: in.Num, ID: in.ID, Text: sc.Text(), Kind: KindLog}
+				if !send(ctx, ch, LogLine{Num: in.Num, ID: in.ID, Text: sc.Text(), Kind: KindLog}) {
+					// 소비자가 멈췄거나(ctx 취소) 채널을 더 읽지 않는다 — eb 프로세스를
+					// 정리하고 goroutine 을 빠져나가 누수를 막는다. CommandContext 가
+					// ctx 취소 시 자식을 죽이지만, pr 를 닫아 Scan 도 즉시 풀어준다.
+					pr.Close()
+					_ = cmd.Wait()
+					return
+				}
 			}
 			scanErr := sc.Err()
 			pr.Close()
 			if err := cmd.Wait(); err != nil {
-				ch <- LogLine{Num: in.Num, ID: in.ID, Text: err.Error(), Kind: KindEnd}
+				send(ctx, ch, LogLine{Num: in.Num, ID: in.ID, Text: err.Error(), Kind: KindEnd})
 			} else if scanErr != nil {
-				ch <- LogLine{Num: in.Num, ID: in.ID, Text: scanErr.Error(), Kind: KindEnd}
+				send(ctx, ch, LogLine{Num: in.Num, ID: in.ID, Text: scanErr.Error(), Kind: KindEnd})
 			}
 		}(in)
 	}
 	go func() { wg.Wait(); close(ch) }()
 	return ch
+}
+
+// send 는 ln 을 ch 로 보내되 ctx 취소를 존중한다. 보냈으면 true, ctx 가 먼저
+// 취소되면 false 를 반환해 호출자가 goroutine 을 정리하고 빠져나가게 한다.
+// 이 가드가 없으면 소비자가 멈춘 뒤 버퍼가 차면 send 가 영구 블록돼 누수된다.
+func send(ctx context.Context, ch chan<- LogLine, ln LogLine) bool {
+	select {
+	case ch <- ln:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
