@@ -277,16 +277,26 @@ func pickProfile(profiles []profileJSON) (string, error) {
 	if len(ps) == 1 {
 		return repo + ":" + ps[0].Name, nil
 	}
+	// 라벨 정렬: default 는 "✓ " 표시, 그 외는 같은 폭으로 들여 이름 컬럼을 맞추고
+	// desc 를 뒤에 붙인다. 예) "✓ app3   kr, jp" / "  app    en".
+	nameW := 0
+	for _, p := range ps {
+		if len(p.Name) > nameW {
+			nameW = len(p.Name)
+		}
+	}
 	labels := make([]string, len(ps))
 	values := make([]string, len(ps))
 	for i, p := range ps {
-		labels[i] = p.Name
+		mark := "  "
 		if p.Default {
-			labels[i] += "  (default)"
+			mark = "✓ "
 		}
+		label := mark + p.Name + strings.Repeat(" ", nameW-len(p.Name))
 		if p.Desc != "" {
-			labels[i] += "  · " + p.Desc
+			label += "   " + p.Desc
 		}
+		labels[i] = label
 		values[i] = p.Name
 	}
 	name, err := pickOne(repo+" — 프로파일 선택", labels, values, "")
