@@ -1,8 +1,14 @@
 package doctor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
+
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 )
 
 func TestValidateRoles(t *testing.T) {
@@ -135,6 +141,59 @@ func TestBuildChecks_EBOptionalWithBrewFix(t *testing.T) {
 		t.Errorf("eb Fix = %q, want %q", eb.Fix, "brew install aws-elasticbeanstalk")
 	}
 }
+
+// deadlineRunner blocks until the context is cancelled and returns the context
+// error — standing in for a wedged `git` whose process exec.CommandContext
+// would have to kill on timeout. It lets us drive the scan's per-repo timeout
+// path deterministically without a real hung process.
+type deadlineRunner struct{}
+
+func (deadlineRunner) Run(ctx context.Context, _ string, _ ...string) (string, string, error) {
+	<-ctx.Done()
+	return "", "", ctx.Err()
+}
+
+// A repo whose `git config` never returns must not hang the whole scan: the
+// per-repo timeout fires, that repo drops out (counted as usingGlobal, i.e.
+// "no readable override"), and scanUn7qi3LocalEmails still returns. Without the
+// timeout this test would block forever. We use a 1ms parent deadline so the
+// per-repo WithTimeout fires immediately rather than waiting the full 10s.
+func TestScanUn7qi3LocalEmails_TimeoutDoesNotHang(t *testing.T) {
+	ws := t.TempDir()
+	repo := filepath.Join(ws, "slowrepo")
+	if err := os.MkdirAll(filepath.Join(repo, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := runner
+	runner = deadlineRunner{}
+	t.Cleanup(func() { runner = orig })
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	var overrides map[string]string
+	var usingGlobal []string
+	go func() {
+		overrides, usingGlobal = scanUn7qi3LocalEmails(ctx, ws, "global@example.com")
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("scanUn7qi3LocalEmails hung past the per-repo timeout")
+	}
+
+	if len(overrides) != 0 {
+		t.Errorf("overrides = %v, want empty (slow repo yields no override)", overrides)
+	}
+	if !contains(usingGlobal, "slowrepo") {
+		t.Errorf("usingGlobal = %v, want it to include the timed-out repo", usingGlobal)
+	}
+}
+
+var _ uqexec.Runner = deadlineRunner{}
 
 func findCheck(t *testing.T, name string) Check {
 	t.Helper()

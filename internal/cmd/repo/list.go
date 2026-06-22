@@ -75,7 +75,7 @@ func newListCmd() *cobra.Command {
 			}
 
 			// gh 인증 사전 확인 — 안 되어 있으면 즉시 exit 4.
-			if s := authpkg.GhStatus(); !s.OK {
+			if s := authpkg.GhStatus(cmd.Context()); !s.OK {
 				return &authpkg.RequiredError{
 					Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 				}

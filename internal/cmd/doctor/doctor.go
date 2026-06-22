@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -27,19 +28,33 @@ import (
 // Runner contract.
 var runner uqexec.Runner = uqexec.Default()
 
-// probeCombined runs name+args and returns stdout and stderr merged, matching
-// the old exec.Command(...).CombinedOutput() behavior the checks rely on
-// (many tools, e.g. java -version, print their version banner to stderr).
-func probeCombined(name string, args ...string) (string, error) {
-	stdout, stderr, err := runner.Run(context.Background(), name, args...)
+// probeTimeout bounds a single external probe (version banner, daemon ping,
+// per-repo git config). Without it a wedged tool or unresponsive daemon would
+// make `uq doctor` hang forever; with it the offending check fails and the
+// rest of the report still renders. 10s is generous for local CLIs yet short
+// enough to keep the command responsive.
+const probeTimeout = 10 * time.Second
+
+// probeCombined runs name+args under a per-command timeout and returns stdout
+// and stderr merged, matching the old exec.Command(...).CombinedOutput()
+// behavior the checks rely on (many tools, e.g. java -version, print their
+// version banner to stderr). ctx is the command-scoped context so Ctrl+C and
+// the timeout both propagate to the child process.
+func probeCombined(ctx context.Context, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	stdout, stderr, err := runner.Run(ctx, name, args...)
 	return stdout + stderr, err
 }
 
-// probeStdout runs name+args and returns stdout only, swallowing the error —
-// used for `git config --get` probes where a missing key exits non-zero and
-// we want that reported as an empty value, not a hard failure.
-func probeStdout(name string, args ...string) string {
-	stdout, _, _ := runner.Run(context.Background(), name, args...)
+// probeStdout runs name+args under a per-command timeout and returns stdout
+// only, swallowing the error — used for `git config --get` probes where a
+// missing key exits non-zero and we want that reported as an empty value, not
+// a hard failure.
+func probeStdout(ctx context.Context, name string, args ...string) string {
+	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	stdout, _, _ := runner.Run(ctx, name, args...)
 	return stdout
 }
 
@@ -83,7 +98,10 @@ type Check struct {
 	// sub-line under the tool's main row so users can decide whether they
 	// actually need it. Called each time doctor runs; expected to be quick.
 	Usage func() string
-	Run   func() (ok bool, version, detail, path string)
+	// Run probes the tool. ctx is the command-scoped context — checks pass it
+	// to probeCombined/probeStdout so each external invocation is bounded by
+	// probeTimeout and cancelled on Ctrl+C.
+	Run func(ctx context.Context) (ok bool, version, detail, path string)
 }
 
 // Result is the JSON-friendly outcome of a check.
@@ -142,7 +160,7 @@ func NewCmd() *cobra.Command {
 			var sum Summary
 
 			for _, c := range checks {
-				ok, ver, detail, path := c.Run()
+				ok, ver, detail, path := c.Run(cmd.Context())
 				r := Result{
 					Name:     c.Name,
 					OK:       ok,
@@ -583,9 +601,9 @@ func buildChecks() []Check {
 // On the local-fallback path we cannot reliably invoke `ng version`
 // (Angular CLI errors out when invoked outside its workspace), so we read
 // the version from the symlinked package's package.json instead.
-func ngCheck() (bool, string, string, string) {
+func ngCheck(ctx context.Context) (bool, string, string, string) {
 	if path, err := exec.LookPath("ng"); err == nil {
-		out, err := probeCombined("ng", "version")
+		out, err := probeCombined(ctx, "ng", "version")
 		if err != nil {
 			return false, "", strings.TrimSpace(out), path
 		}
@@ -603,9 +621,9 @@ func ngCheck() (bool, string, string, string) {
 // failed global probe, it falls back to checking `~/un7qi3/.../node_modules/
 // .bin/<binName>`. Use this for npm-distributed CLIs where local install is
 // the norm (Angular CLI, Ionic CLI, etc.).
-func withLocalFallback(run func() (bool, string, string, string), binName string) func() (bool, string, string, string) {
-	return func() (bool, string, string, string) {
-		ok, ver, detail, path := run()
+func withLocalFallback(run func(context.Context) (bool, string, string, string), binName string) func(context.Context) (bool, string, string, string) {
+	return func(ctx context.Context) (bool, string, string, string) {
+		ok, ver, detail, path := run(ctx)
 		if ok {
 			return ok, ver, detail, path
 		}
@@ -646,14 +664,14 @@ func localBinFallback(binName string) (bool, string, string, string) {
 // exit. The path returned is exec.LookPath's resolution of bin (i.e. the
 // absolute binary location actually on PATH). If the binary is missing we
 // report ok=false.
-func versionCheck(bin string, args []string, pattern string) func() (bool, string, string, string) {
+func versionCheck(bin string, args []string, pattern string) func(context.Context) (bool, string, string, string) {
 	re := regexp.MustCompile(pattern)
-	return func() (bool, string, string, string) {
+	return func(ctx context.Context) (bool, string, string, string) {
 		path, err := exec.LookPath(bin)
 		if err != nil {
 			return false, "", "", ""
 		}
-		out, err := probeCombined(bin, args...)
+		out, err := probeCombined(ctx, bin, args...)
 		if err != nil {
 			return false, "", strings.TrimSpace(out), path
 		}
@@ -682,12 +700,12 @@ func versionCheck(bin string, args []string, pattern string) func() (bool, strin
 //	~/un7qi3: <email1> × N  (repo, repo, ...)
 //	~/un7qi3: <email2> × M  (repo, ...)
 //	⚠ ~/un7qi3 레포 K개가 global 이메일 사용 중
-func gitCheck() (bool, string, string, string) {
+func gitCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("git")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := probeCombined("git", "--version")
+	out, err := probeCombined(ctx, "git", "--version")
 	if err != nil {
 		return false, "", strings.TrimSpace(out), path
 	}
@@ -697,8 +715,8 @@ func gitCheck() (bool, string, string, string) {
 		ver = m[1]
 	}
 
-	globalEmail := strings.TrimSpace(probeStdout("git", "config", "--global", "--get", "user.email"))
-	globalName := strings.TrimSpace(probeStdout("git", "config", "--global", "--get", "user.name"))
+	globalEmail := strings.TrimSpace(probeStdout(ctx, "git", "config", "--global", "--get", "user.email"))
+	globalName := strings.TrimSpace(probeStdout(ctx, "git", "config", "--global", "--get", "user.name"))
 
 	var head string
 	switch {
@@ -715,7 +733,7 @@ func gitCheck() (bool, string, string, string) {
 	lines := []string{head}
 	reposDir, _ := config.ReposDir()
 	if reposDir != "" {
-		overrides, usingGlobal := scanUn7qi3LocalEmails(reposDir, globalEmail)
+		overrides, usingGlobal := scanUn7qi3LocalEmails(ctx, reposDir, globalEmail)
 		// Group by email so 같은 override 가 모이고 한 줄에 요약된다.
 		byEmail := map[string][]string{}
 		for repo, email := range overrides {
@@ -757,7 +775,7 @@ func gitCheck() (bool, string, string, string) {
 // Repos whose effective email matches the bare global (i.e. no override at
 // any layer) are reported in usingGlobal so the caller can warn. The rest
 // are returned in overrides keyed by repo name.
-func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[string]string, usingGlobal []string) {
+func scanUn7qi3LocalEmails(ctx context.Context, workspaceDir, globalEmail string) (overrides map[string]string, usingGlobal []string) {
 	overrides = map[string]string{}
 	entries, err := os.ReadDir(workspaceDir)
 	if err != nil {
@@ -788,7 +806,12 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			out, _, err := runner.Run(context.Background(), "git", "-C", repoDir, "config", "--get", "user.email")
+			// Per-repo timeout so a single wedged git (e.g. a repo on a stalled
+			// network filesystem) can't hang the whole scan — the slow repo
+			// drops out, the rest still report.
+			cctx, cancel := context.WithTimeout(ctx, probeTimeout)
+			defer cancel()
+			out, _, err := runner.Run(cctx, "git", "-C", repoDir, "config", "--get", "user.email")
 			mu.Lock()
 			results = append(results, result{
 				name:      name,
@@ -812,12 +835,12 @@ func scanUn7qi3LocalEmails(workspaceDir, globalEmail string) (overrides map[stri
 
 // ghCheck delegates the auth-status portion to internal/auth.GhStatus so that
 // `uq doctor` and `uq auth status` share a single source of truth.
-func ghCheck() (bool, string, string, string) {
+func ghCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("gh")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := probeCombined("gh", "--version")
+	out, err := probeCombined(ctx, "gh", "--version")
 	if err != nil {
 		return false, "", strings.TrimSpace(out), path
 	}
@@ -828,8 +851,8 @@ func ghCheck() (bool, string, string, string) {
 		ver = m[1]
 	}
 
-	// Delegate auth probe.
-	s := authpkg.GhStatus()
+	// Delegate auth probe (GhStatus applies its own status-probe timeout).
+	s := authpkg.GhStatus(ctx)
 	if !s.OK {
 		return true, ver, "인증 안 됨", path
 	}
@@ -841,7 +864,9 @@ func ghCheck() (bool, string, string, string) {
 
 // sdkmanCheck probes ~/.sdkman because sdkman is a shell function, not a
 // binary on PATH. The reported path is the sdkman home directory.
-func sdkmanCheck() (bool, string, string, string) {
+// sdkmanCheck takes ctx to satisfy the Check.Run contract but runs no external
+// command — it only stats ~/.sdkman — so nothing to time out.
+func sdkmanCheck(_ context.Context) (bool, string, string, string) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return false, "", err.Error(), ""
@@ -858,12 +883,12 @@ func sdkmanCheck() (bool, string, string, string) {
 	return true, "설치됨", "", sdkHome
 }
 
-func javaCheck() (bool, string, string, string) {
+func javaCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("java")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := probeCombined("java", "-version")
+	out, err := probeCombined(ctx, "java", "-version")
 	if err != nil {
 		return false, "", strings.TrimSpace(out), path
 	}
@@ -875,12 +900,12 @@ func javaCheck() (bool, string, string, string) {
 	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
-func gcloudCheck() (bool, string, string, string) {
+func gcloudCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("gcloud")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := probeCombined("gcloud", "--version")
+	out, err := probeCombined(ctx, "gcloud", "--version")
 	if err != nil {
 		return false, "", strings.TrimSpace(out), path
 	}
@@ -892,12 +917,12 @@ func gcloudCheck() (bool, string, string, string) {
 	return true, strings.TrimSpace(strings.SplitN(out, "\n", 2)[0]), "", path
 }
 
-func dockerCheck() (bool, string, string, string) {
+func dockerCheck(ctx context.Context) (bool, string, string, string) {
 	path, err := exec.LookPath("docker")
 	if err != nil {
 		return false, "", "", ""
 	}
-	out, err := probeCombined("docker", "--version")
+	out, err := probeCombined(ctx, "docker", "--version")
 	if err != nil {
 		return false, "", strings.TrimSpace(out), path
 	}
@@ -909,8 +934,12 @@ func dockerCheck() (bool, string, string, string) {
 	} else {
 		ver = strings.TrimSpace(out)
 	}
-	// Probe daemon
-	if _, _, err := runner.Run(context.Background(), "docker", "info"); err != nil {
+	// Probe daemon. `docker info` blocks until it can reach the daemon socket,
+	// so an installed-but-unresponsive Docker would hang doctor forever without
+	// a deadline — bound it like every other probe.
+	dctx, cancel := context.WithTimeout(ctx, probeTimeout)
+	defer cancel()
+	if _, _, err := runner.Run(dctx, "docker", "info"); err != nil {
 		return true, ver, "데몬 실행 안 됨", path
 	}
 	return true, ver, "", path

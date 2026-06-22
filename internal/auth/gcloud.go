@@ -17,11 +17,13 @@ type gcloudAccount struct {
 // using the package default Runner. The binary-presence guard lives here (not
 // in the parse core) so unit tests can drive gcloudStatus with a fake Runner
 // on hosts where gcloud isn't installed.
-func GcloudStatus() Status {
+func GcloudStatus(ctx context.Context) Status {
 	if !uqexec.LookPath("gcloud") {
 		return Status{Name: "gcloud", Error: "gcloud CLI 설치되지 않음"}
 	}
-	return gcloudStatus(context.Background(), defaultRunner)
+	ctx, cancel := context.WithTimeout(ctx, statusProbeTimeout)
+	defer cancel()
+	return gcloudStatus(ctx, defaultRunner)
 }
 
 // gcloudStatus runs the probe through r and parses the result. It assumes
@@ -31,6 +33,10 @@ func gcloudStatus(ctx context.Context, r uqexec.Runner) Status {
 	s := Status{Name: "gcloud"}
 	out, _, err := r.Run(ctx, "gcloud", "auth", "list", "--format=json")
 	if err != nil {
+		if msg, ok := probeTimeoutMsg(ctx, "gcloud", err); ok {
+			s.Error = msg
+			return s
+		}
 		s.Error = trimMsg(err.Error())
 		return s
 	}
@@ -52,8 +58,8 @@ func gcloudStatus(ctx context.Context, r uqexec.Runner) Status {
 }
 
 // GcloudLogin runs `gcloud auth login` interactively unless an account is active.
-func GcloudLogin() error {
-	s := GcloudStatus()
+func GcloudLogin(ctx context.Context) error {
+	s := GcloudStatus(ctx)
 	if s.OK {
 		fmt.Printf("gcloud: 이미 로그인됨: %s\n", s.Account)
 		return nil

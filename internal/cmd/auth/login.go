@@ -43,11 +43,11 @@ func newLoginCmd() *cobra.Command {
 				var lerr error
 				switch name {
 				case "gh":
-					lerr = authpkg.GhLogin()
+					lerr = authpkg.GhLogin(cmd.Context())
 				case "aws":
-					lerr = authpkg.AwsLogin()
+					lerr = authpkg.AwsLogin(cmd.Context())
 				case "gcloud":
-					lerr = authpkg.GcloudLogin()
+					lerr = authpkg.GcloudLogin(cmd.Context())
 				}
 				if lerr != nil {
 					fmt.Fprintf(os.Stderr, "%s: %v\n", name, lerr)

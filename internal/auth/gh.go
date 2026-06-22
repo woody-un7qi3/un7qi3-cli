@@ -15,11 +15,13 @@ var ghUserRe = regexp.MustCompile(`(?:Logged in to [^\s]+ (?:as|account) |accoun
 // package default Runner. The binary-presence guard lives here (not in the
 // parse core) so unit tests can drive ghStatus with a fake Runner on hosts
 // where gh isn't installed.
-func GhStatus() Status {
+func GhStatus(ctx context.Context) Status {
 	if !uqexec.LookPath("gh") {
 		return Status{Name: "gh", Error: "gh CLI 설치되지 않음"}
 	}
-	return ghStatus(context.Background(), defaultRunner)
+	ctx, cancel := context.WithTimeout(ctx, statusProbeTimeout)
+	defer cancel()
+	return ghStatus(ctx, defaultRunner)
 }
 
 // ghStatus runs the probe through r and parses the result. It assumes gh
@@ -32,6 +34,10 @@ func ghStatus(ctx context.Context, r uqexec.Runner) Status {
 	stdout, stderr, err := r.Run(ctx, "gh", "auth", "status")
 	text := stdout + stderr
 	if err != nil {
+		if msg, ok := probeTimeoutMsg(ctx, "gh", err); ok {
+			s.Error = msg
+			return s
+		}
 		// Unauthenticated → non-zero exit; message is in combined output.
 		s.Error = trimMsg(text)
 		return s
@@ -50,8 +56,8 @@ func ghStatus(ctx context.Context, r uqexec.Runner) Status {
 
 // GhLogin runs `gh auth login` interactively unless already authenticated.
 // On a fresh login it also runs `gh auth setup-git`.
-func GhLogin() error {
-	s := GhStatus()
+func GhLogin(ctx context.Context) error {
+	s := GhStatus(ctx)
 	if s.OK {
 		who := s.User
 		if who == "" {

@@ -3,7 +3,9 @@
 package auth
 
 import (
+	"context"
 	"errors"
+	"time"
 
 	"github.com/un7qi3inc/un7qi3-cli/internal/clierr"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
@@ -13,6 +15,11 @@ import (
 // GcloudStatus) use in production. Tests exercise the injectable *Status core
 // functions with a fake Runner instead of mutating this.
 var defaultRunner uqexec.Runner = uqexec.Default()
+
+// statusProbeTimeout bounds a single provider status probe. Without it a hung
+// network or unresponsive auth daemon would make `uq auth status` / `uq doctor`
+// block forever; with it the probe fails as "타임아웃" and the command moves on.
+const statusProbeTimeout = 10 * time.Second
 
 // init teaches the central error classifier that *RequiredError means exit 4.
 // Registering here (rather than importing auth from clierr) keeps clierr free
@@ -61,16 +68,27 @@ type RequiredError struct {
 func (e *RequiredError) Error() string { return e.Msg }
 
 // StatusOf collects the Status for a single provider name. Unknown names
-// return an OK=false Status with Error set.
-func StatusOf(name string) Status {
+// return an OK=false Status with Error set. ctx flows into the provider probe
+// so callers (auth status, doctor) can bound or cancel it.
+func StatusOf(ctx context.Context, name string) Status {
 	switch name {
 	case "gh":
-		return GhStatus()
+		return GhStatus(ctx)
 	case "aws":
-		return AwsStatus()
+		return AwsStatus(ctx)
 	case "gcloud":
-		return GcloudStatus()
+		return GcloudStatus(ctx)
 	default:
 		return Status{Name: name, OK: false, Error: "알 수 없는 provider"}
 	}
+}
+
+// probeTimeoutMsg maps a probe error to a status-friendly message, replacing a
+// context-deadline error with an explicit "타임아웃" note so the report shows
+// why the provider was skipped rather than a raw "context deadline exceeded".
+func probeTimeoutMsg(ctx context.Context, name string, err error) (string, bool) {
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return name + " 상태 확인 타임아웃 (" + statusProbeTimeout.String() + " 초과)", true
+	}
+	return "", false
 }

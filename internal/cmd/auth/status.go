@@ -35,7 +35,7 @@ func newStatusCmd() *cobra.Command {
 
 			report := authpkg.Report{Providers: make([]authpkg.Status, 0, len(providers))}
 			for _, name := range providers {
-				s := authpkg.StatusOf(name)
+				s := authpkg.StatusOf(cmd.Context(), name)
 				report.Providers = append(report.Providers, s)
 				if s.OK {
 					report.Summary.OK++

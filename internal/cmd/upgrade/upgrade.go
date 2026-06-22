@@ -50,7 +50,7 @@ func runUpgrade(cmd *cobra.Command) error {
 	if !uqexec.LookPath("gh") {
 		return &authpkg.RequiredError{Msg: "gh 미설치. `brew install gh && gh auth login` 실행"}
 	}
-	if s := authpkg.GhStatus(); !s.OK {
+	if s := authpkg.GhStatus(cmd.Context()); !s.OK {
 		return &authpkg.RequiredError{Msg: "gh 인증 안 됨. `gh auth login` 실행"}
 	}
 

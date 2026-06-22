@@ -5,6 +5,9 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
+
+	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 )
 
 // fakeRunner is a test double for uqexec.Runner. It ignores the command and
@@ -162,7 +165,7 @@ func TestGcloudStatus_InvalidJSONReportsParseError(t *testing.T) {
 func TestStatus_MissingBinaryReportsNotInstalled(t *testing.T) {
 	t.Setenv("PATH", "")
 	for _, tc := range []struct {
-		probe   func() Status
+		probe   func(context.Context) Status
 		name    string
 		wantErr string
 	}{
@@ -170,12 +173,49 @@ func TestStatus_MissingBinaryReportsNotInstalled(t *testing.T) {
 		{AwsStatus, "aws", "aws CLI 설치되지 않음"},
 		{GcloudStatus, "gcloud", "gcloud CLI 설치되지 않음"},
 	} {
-		s := tc.probe()
+		s := tc.probe(context.Background())
 		if s.OK {
 			t.Errorf("%s: OK = true, want false (미설치)", tc.name)
 		}
 		if s.Error != tc.wantErr {
 			t.Errorf("%s: Error = %q, want %q", tc.name, s.Error, tc.wantErr)
+		}
+	}
+}
+
+// deadlineRunner simulates a probe whose external command does not return
+// before the context deadline — it blocks on ctx.Done() and reports the
+// context error, exactly as OSRunner does when exec.CommandContext kills a
+// timed-out child. It lets us drive the timeout path without spawning a real
+// slow process.
+type deadlineRunner struct{}
+
+func (deadlineRunner) Run(ctx context.Context, _ string, _ ...string) (string, string, error) {
+	<-ctx.Done()
+	return "", "", ctx.Err()
+}
+
+// When the probe context is already past its deadline, each *Status core must
+// report the explicit "타임아웃" reason (OK=false) rather than hang or surface a
+// raw "context deadline exceeded". This is the new behavior the timeout work
+// introduces — fast paths are unchanged, only the hang turns into a clean fail.
+func TestStatus_ContextDeadlineReportsTimeout(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		probe func(context.Context, uqexec.Runner) Status
+	}{
+		{"gh", ghStatus},
+		{"aws", awsStatus},
+		{"gcloud", gcloudStatus},
+	} {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+		s := tc.probe(ctx, deadlineRunner{})
+		cancel()
+		if s.OK {
+			t.Errorf("%s: OK = true, want false on timeout", tc.name)
+		}
+		if !strings.Contains(s.Error, "타임아웃") {
+			t.Errorf("%s: Error = %q, want it to mention 타임아웃", tc.name, s.Error)
 		}
 	}
 }

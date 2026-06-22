@@ -4,6 +4,7 @@ package initcmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"io"
 	"io/fs"
@@ -32,7 +33,7 @@ const customChoice = "__custom__"
 // uniformly for every step.
 type initStep struct {
 	title string
-	run   func(io.Writer) error
+	run   func(context.Context, io.Writer) error
 }
 
 // NewCmd returns the `uq init` command.
@@ -70,7 +71,7 @@ func NewCmd() *cobra.Command {
 					fmt.Fprintln(w)
 				}
 				fmt.Fprintln(w, output.Section(fmt.Sprintf("%d. %s", i+1, s.title)))
-				if err := s.run(w); err != nil {
+				if err := s.run(cmd.Context(), w); err != nil {
 					return err
 				}
 			}
@@ -93,7 +94,9 @@ func EnsureReposDir(w io.Writer) error {
 		return nil
 	}
 	fmt.Fprintf(w, "%s\n", output.Dim("워크스페이스가 아직 설정되지 않았습니다 — 처음 한 번만 정할게요."))
-	if err := setupWorkspace(w); err != nil {
+	// setupWorkspace 는 외부 명령을 부르지 않고(로컬 FS 스캔 + 대화형 폼) 취소할
+	// 작업이 없어 background 로 충분하다 — ctx 는 initStep 계약 충족용 인자다.
+	if err := setupWorkspace(context.Background(), w); err != nil {
 		return err
 	}
 	fmt.Fprintln(w)
@@ -101,8 +104,8 @@ func EnsureReposDir(w io.Writer) error {
 }
 
 // checkEssentials verifies gh auth (clone/pull의 전제) and offers to log in.
-func checkEssentials(w io.Writer) error {
-	s := authpkg.GhStatus()
+func checkEssentials(ctx context.Context, w io.Writer) error {
+	s := authpkg.GhStatus(ctx)
 	if s.OK {
 		who := s.User
 		if who == "" {
@@ -129,7 +132,7 @@ func checkEssentials(w io.Writer) error {
 		fmt.Fprintf(w, "%s 나중에 %s 로 로그인하세요\n", output.Yellow("⚠"), output.Cyan("uq auth login"))
 		return nil
 	}
-	if err := authpkg.GhLogin(); err != nil {
+	if err := authpkg.GhLogin(ctx); err != nil {
 		return err
 	}
 	fmt.Fprintf(w, "%s gh 로그인 완료\n", output.Green("✓"))
@@ -138,7 +141,8 @@ func checkEssentials(w io.Writer) error {
 
 // setupWorkspace scans for existing org clones, then runs a single guided form
 // (intro → pick → optional custom path → confirm) and saves the result.
-func setupWorkspace(w io.Writer) error {
+// ctx is unused (no external probe) but kept to satisfy the initStep contract.
+func setupWorkspace(_ context.Context, w io.Writer) error {
 	defaultDir, err := defaultReposDir()
 	if err != nil {
 		return err

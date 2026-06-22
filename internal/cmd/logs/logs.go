@@ -122,7 +122,7 @@ func runLogs(cmd *cobra.Command, opts *logsOptions, repo string, filters []strin
 
 	// 2. 외부 도구 사전확인 (exit 4) — aws 는 발견 단계 필수, eb 는 스트리밍에만
 	//    쓰여 dry-run 이면 면제.
-	if err := checkLogsPreconditions(authpkg.AwsStatus(), opts.dryRun, uqexec.LookPath("eb")); err != nil {
+	if err := checkLogsPreconditions(authpkg.AwsStatus(cmd.Context()), opts.dryRun, uqexec.LookPath("eb")); err != nil {
 		return err
 	}
 

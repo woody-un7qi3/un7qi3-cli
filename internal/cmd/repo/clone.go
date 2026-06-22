@@ -66,7 +66,7 @@ func newCloneCmd() *cobra.Command {
 			// gh 인증 사전 확인 — 안 되어 있으면 즉시 exit 4.
 			// 워크스페이스 설정 프롬프트보다 먼저 막아 미인증 시 불필요한
 			// 디렉토리 설정을 거치지 않게 한다.
-			if s := authpkg.GhStatus(); !s.OK {
+			if s := authpkg.GhStatus(cmd.Context()); !s.OK {
 				return &authpkg.RequiredError{
 					Msg: "gh 인증 안 됨. `uq auth login --gh-only` 실행",
 				}
