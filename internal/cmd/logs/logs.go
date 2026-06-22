@@ -37,7 +37,7 @@ type logsOptions struct {
 // NewCmd returns the `uq logs` command.
 func NewCmd() *cobra.Command {
 	opts := &logsOptions{}
-	long := strings.Join(append([]string{
+	long := strings.Join([]string{
 		output.Desc("Elastic Beanstalk 다중 인스턴스의 로그를 멀티플렉스로 스트리밍합니다."),
 		"",
 		output.Desc("기본은 전체 인스턴스를 한 스트림으로. ") + output.Yellow("--split") + output.Desc(" 으로 인스턴스별 패널 분리."),
@@ -50,8 +50,9 @@ func NewCmd() *cobra.Command {
 		output.HelpExample("uq log forceteller-api kr beta --split", "인스턴스별 패널 분리"),
 		output.HelpExample("uq log forceteller-api kr beta --grep ERROR", "ERROR 패턴만 필터"),
 		output.HelpExample("uq log forceteller-api kr beta --dry-run", "해석된 명령만 출력"),
-		output.HelpExample("uq log targets", "등록된 log 대상 나열 (--json 으로 기계 출력)"),
-	}, logsReposSection()...), "\n")
+		output.HelpExample("uq log targets", "등록된 log 대상 나열 (사람용)"),
+		output.HelpExample("uq log targets --json", "에이전트/자동화용 머신 출력"),
+	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "log <대상> [필터...]",
 		Short: "EB 인스턴스 멀티플렉스 로그 스트리밍",
@@ -71,25 +72,6 @@ func NewCmd() *cobra.Command {
 	cmd.MarkFlagsMutuallyExclusive("split", "no-follow")
 	cmd.AddCommand(newTargetsCmd())
 	return cmd
-}
-
-// logsReposSection 은 logs 를 쓸 수 있는 repo 를 초록색으로 나열한 help 섹션을 만든다.
-// repos.yml 의 logs: 를 읽어 동적으로 구성되므로 repo 가 추가되면 자동 반영된다.
-// 로드 실패나 빈 목록이면 nil 을 반환해 섹션을 생략한다.
-func logsReposSection() []string {
-	cfg, err := repocfg.Load()
-	if err != nil {
-		return nil
-	}
-	repos := cfg.LogsRepos()
-	if len(repos) == 0 {
-		return nil
-	}
-	return []string{
-		"",
-		output.Heading("사용 가능한 logs 대상"),
-		"  " + greenRepos(repos),
-	}
 }
 
 // greenRepos 는 repo 목록을 초록색으로 칠해 ", " 로 잇는다(help·에러 공용 포맷).
