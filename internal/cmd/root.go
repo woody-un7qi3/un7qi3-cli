@@ -271,7 +271,7 @@ func renderCommandList(cmds []*cobra.Command) string {
 		b.WriteString(output.Cyan(name))
 		b.WriteString(pad)
 		b.WriteString("  ")
-		b.WriteString(c.Short)
+		b.WriteString(output.DimParenHints(c.Short))
 		if i < len(visible)-1 {
 			b.WriteString("\n")
 		}

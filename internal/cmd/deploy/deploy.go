@@ -22,7 +22,7 @@ func NewCmd() *cobra.Command {
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "deploy",
-		Short: ".uq.yml에 정의된 배포 워크플로 실행",
+		Short: "배포 워크플로 실행",
 		Long:  long,
 	}
 	cmd.AddCommand(newRunCmd())
