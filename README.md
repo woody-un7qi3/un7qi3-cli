@@ -240,7 +240,6 @@ runs:                          # uq run <repo>[:profile] 실행 프로파일
 │   ├── repocfg/                # 임베드된 repos.yml 로더
 │   ├── manifest/               # .uq.yml 배포 매니페스트
 │   └── version/                # ldflags 주입 버전 메타데이터
-├── docs/                     # Phase 설계/계획 문서 (0001~0005)
 ├── .github/workflows/        # release-please + GoReleaser + PR 검증
 ├── .goreleaser.yaml          # 릴리스 빌드 설정
 └── Makefile                  # build / install / test / lint
