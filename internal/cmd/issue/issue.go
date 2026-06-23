@@ -89,7 +89,7 @@ func runIssue(cmd *cobra.Command, dryRun bool) error {
 	}
 
 	// 6. 확인 후 제출
-	confirm := false
+	var confirm bool
 	if err := huh.NewConfirm().
 		Title(fmt.Sprintf("%s 에 이슈를 올릴까요?", project.SelfRepo())).
 		Value(&confirm).
@@ -111,13 +111,6 @@ func runIssue(cmd *cobra.Command, dryRun bool) error {
 
 // runForm 은 종류에 맞는 huh 폼을 띄워 f 를 채운다. 제목은 공통 필수.
 func runForm(f *form) error {
-	if f.version == "" {
-		f.version = version.Version
-	}
-	if f.env == "" {
-		f.env = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
-	}
-
 	var group *huh.Group
 	titleField := huh.NewInput().Title("제목").Value(&f.title).
 		Validate(func(s string) error {
@@ -128,6 +121,13 @@ func runForm(f *form) error {
 		})
 
 	if f.kind == kindBug {
+		// 버그 리포트에만 쓰는 필드는 여기서 기본값을 채운다.
+		if f.version == "" {
+			f.version = version.Version
+		}
+		if f.env == "" {
+			f.env = fmt.Sprintf("%s/%s", runtime.GOOS, runtime.GOARCH)
+		}
 		group = huh.NewGroup(
 			titleField,
 			huh.NewText().Title("무슨 일이 일어났나요?").Description("기대한 동작과 실제 동작").Value(&f.what),

@@ -4,11 +4,12 @@ package project
 
 import "os"
 
-// selfRepo 는 릴리스가 발행되고 이슈가 등록되는 un7qi3-cli 레포(owner/name).
-const selfRepo = "woody-un7qi3/un7qi3-cli"
-
-// org 는 `uq repo` 가 스캔하는 GitHub 조직.
-const org = "un7qi3inc"
+const (
+	// selfRepo 는 릴리스가 발행되고 이슈가 등록되는 un7qi3-cli 레포(owner/name).
+	selfRepo = "woody-un7qi3/un7qi3-cli"
+	// org 는 `uq repo` 가 스캔하는 GitHub 조직.
+	org = "un7qi3inc"
+)
 
 // SelfRepo 는 릴리스·이슈 대상 레포(owner/name)를 반환한다.
 // UQ_REPO 환경변수가 있으면 그 값이 우선한다(테스트/개인 레포용).
