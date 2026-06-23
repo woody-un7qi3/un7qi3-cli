@@ -12,6 +12,7 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/doctor"
 	envcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/env"
 	initcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/initcmd"
+	issuecmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/issue"
 	logcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/log"
 	"github.com/un7qi3inc/un7qi3-cli/internal/cmd/repo"
 	runcmd "github.com/un7qi3inc/un7qi3-cli/internal/cmd/run"
@@ -76,9 +77,8 @@ var rootCmd = &cobra.Command{
 	Long: strings.Join([]string{
 		output.Desc("uq는 un7qi3 사내 CLI입니다."),
 		"",
-		output.Desc("온보딩, 레포 셋업, 시크릿, 배포, 운영 작업을 위한"),
-		output.Desc("LLM 호출 가능한 결정론적 도구입니다. 주로 Claude Code가 호출하며,"),
-		output.Desc("사람도 사용할 수 있도록 친화적인 출력을 제공합니다."),
+		output.Desc("레포 · 로컬 실행 · 배포 · 로그 · 이슈 작업을 한곳에서 처리합니다."),
+		output.Desc("Claude Code 같은 에이전트가 호출하며, 사람도 쓰기 좋은 출력을 제공합니다."),
 		"",
 		output.Heading("자주 쓰는 명령"),
 		output.HelpExample("uq init", "최초 설정"),
@@ -149,6 +149,7 @@ func init() {
 	// 도구 — uq 자체 메타/유지보수 + 유틸
 	rootCmd.AddCommand(inGroup(versioncmd.NewCmd(), groupTools))
 	rootCmd.AddCommand(inGroup(updatecmd.NewCmd(), groupTools))
+	rootCmd.AddCommand(inGroup(issuecmd.NewCmd(), groupTools))
 	// skills 는 아직 미지원(stub)이라 --help 에서 숨긴다. 명령 자체는 남겨두어
 	// `uq skills` 직접 호출은 가능하지만, 안정화 전까지 목록에 노출하지 않는다.
 	skillsCmd := inGroup(skills.NewCmd(), groupTools)
@@ -269,7 +270,7 @@ func renderCommandList(cmds []*cobra.Command) string {
 		b.WriteString(output.Cyan(name))
 		b.WriteString(pad)
 		b.WriteString("  ")
-		b.WriteString(c.Short)
+		b.WriteString(output.DimParenHints(c.Short))
 		if i < len(visible)-1 {
 			b.WriteString("\n")
 		}

@@ -16,14 +16,9 @@ import (
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
+	"github.com/un7qi3inc/un7qi3-cli/internal/project"
 	"github.com/un7qi3inc/un7qi3-cli/internal/version"
 )
-
-// releaseRepo 는 릴리즈가 발행되는 GitHub 레포(owner/repo).
-//
-// 회사 계정으로 이전할 때는 git origin 과 함께 이 한 줄만 바꾸면 된다
-// (.goreleaser.yaml / 워크플로는 레포를 명시하지 않고 원격에서 추론한다).
-const releaseRepo = "woody-un7qi3/un7qi3-cli"
 
 // NewCmd returns the `uq upgrade` command.
 func NewCmd() *cobra.Command {
@@ -56,7 +51,7 @@ func runUpgrade(cmd *cobra.Command) error {
 	}
 
 	// 2. 최신 릴리즈 태그 + 릴리즈 노트(body) 조회 — 한 번의 호출로 함께 받는다.
-	out, err := uqexec.Run("gh", "release", "view", "--repo", releaseRepo,
+	out, err := uqexec.Run("gh", "release", "view", "--repo", project.SelfRepo(),
 		"--json", "tagName,body")
 	if err != nil {
 		// 릴리즈가 하나도 없으면 gh 가 "release not found" 로 종료한다 — 에러가 아닌
@@ -98,7 +93,7 @@ func runUpgrade(cmd *cobra.Command) error {
 
 	// 4. 같은 디렉터리에 임시 다운로드 후 rename (동일 파일시스템 → 원자적)
 	tmp := exe + ".new"
-	if _, err := uqexec.Run("gh", "release", "download", latest, "--repo", releaseRepo,
+	if _, err := uqexec.Run("gh", "release", "download", latest, "--repo", project.SelfRepo(),
 		"--pattern", asset, "--output", tmp, "--clobber"); err != nil {
 		return fmt.Errorf("다운로드 실패(%s): %w", asset, err)
 	}

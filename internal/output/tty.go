@@ -93,6 +93,22 @@ func Desc(s string) string {
 	return wrap(ansiDim, s)
 }
 
+// parenHintRe matches a parenthetical hint anywhere in a line, e.g.
+// "(gh, aws, gcloud)" or "(인증 점검 + 워크스페이스 위치)".
+var parenHintRe = regexp.MustCompile(`\([^)]*\)`)
+
+// DimParenHints drops the parenthesis characters from a parenthetical hint and
+// dims the inner text, so it reads as a quiet secondary detail after the main
+// description in --help command listings. With color disabled the parentheses
+// are still removed (the inner text is returned plain).
+//
+//	"인증 관리 (gh, aws, gcloud)" → "인증 관리 " + dim "gh, aws, gcloud"
+func DimParenHints(s string) string {
+	return parenHintRe.ReplaceAllStringFunc(s, func(m string) string {
+		return Dim(m[1 : len(m)-1]) // inner text, sans the ASCII '(' ')' bytes
+	})
+}
+
 // Heading renders a section heading (bold + a soft underline glyph).
 func Heading(s string) string {
 	return Bold(s)
