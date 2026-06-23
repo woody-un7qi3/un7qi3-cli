@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.8](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.7...v0.1.8) (2026-06-23)
+
+
+### 기능
+
+* 단일 바이너리 설치 스크립트 추가 및 README 정정 ([#10](https://github.com/woody-un7qi3/un7qi3-cli/issues/10)) ([bfd60ba](https://github.com/woody-un7qi3/un7qi3-cli/commit/bfd60ba00cd92cf28b68ab65c8c0d50163838c81))
+
 ## [0.1.7](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.6...v0.1.7) (2026-06-22)
 
 
