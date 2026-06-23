@@ -9,6 +9,8 @@ bin/
 # 로컬 전용 (원격에 올리지 않음)
 docs/
 .claude/
+.superpowers/
+CLAUDE.md
 
 # 리팩토링 하네스 중간 산출물 (감사 추적용, 커밋 제외)
 _workspace/
