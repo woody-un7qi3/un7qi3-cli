@@ -47,7 +47,7 @@ func TestBugBody(t *testing.T) {
 		env:     "darwin/arm64",
 	}
 	b := f.body()
-	for _, want := range []string{"## 무슨 일이 일어났나요?", "패널이 안 뜸", "## 재현 방법", "## uq 버전", "0.1.8", "## 환경", "darwin/arm64"} {
+	for _, want := range []string{"## 무슨 일이 일어났나요?", "패널이 안 뜸", "## 재현 방법", "1. uq run", "## uq 버전", "0.1.8", "## 환경", "darwin/arm64"} {
 		if !strings.Contains(b, want) {
 			t.Errorf("body missing %q\n--- body ---\n%s", want, b)
 		}
