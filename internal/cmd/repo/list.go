@@ -15,9 +15,8 @@ import (
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
+	"github.com/un7qi3inc/un7qi3-cli/internal/project"
 )
-
-const ghOrg = "un7qi3inc"
 
 // runner executes the org-repo metadata probe. It defaults to the production
 // OSRunner but can be swapped in tests. exec.RunInteractive (실제 클론) 과
@@ -45,7 +44,7 @@ type ghRepo struct {
 // 순수 네트워크 메타데이터 호출이라 repoFetchTimeout 으로 상한을 둔다.
 // 네트워크가 멈춰도 무한 hang 하지 않고 타임아웃 에러로 되돌아온다.
 func fetchOrgRepos(ctx context.Context, limit int, topic string) ([]ghRepo, error) {
-	ghArgs := []string{"repo", "list", ghOrg,
+	ghArgs := []string{"repo", "list", project.Org(),
 		"--json", "name,description,visibility,updatedAt,isArchived",
 		"--limit", strconv.Itoa(limit),
 	}

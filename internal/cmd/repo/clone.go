@@ -15,6 +15,7 @@ import (
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	uqexec "github.com/un7qi3inc/un7qi3-cli/internal/exec"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
+	"github.com/un7qi3inc/un7qi3-cli/internal/project"
 )
 
 func newCloneCmd() *cobra.Command {
@@ -134,7 +135,7 @@ func runBulkClone(cmd *cobra.Command, team string, all, list, jsonOut bool) erro
 			fmt.Fprintf(cmd.OutOrStderr(),
 				"%q 토픽이 붙은 레포가 없습니다.\n토픽 추가 방법:\n  %s\n",
 				team,
-				output.Cyan(fmt.Sprintf("gh repo edit %s/<repo> --add-topic %s", ghOrg, team)),
+				output.Cyan(fmt.Sprintf("gh repo edit %s/<repo> --add-topic %s", project.Org(), team)),
 			)
 		} else {
 			fmt.Fprintln(cmd.OutOrStderr(), "클론할 레포가 없습니다.")
@@ -232,7 +233,7 @@ func cloneInto(cmd *cobra.Command, names, targets []string) error {
 			return fmt.Errorf("부모 디렉토리 생성 실패: %w", err)
 		}
 		fmt.Fprintf(w, "%s %s  %s\n", output.Cyan("↓"), name, output.Dim("클론 중..."))
-		ref := fmt.Sprintf("%s/%s", ghOrg, name)
+		ref := fmt.Sprintf("%s/%s", project.Org(), name)
 		if err := uqexec.RunInteractive("gh", "repo", "clone", ref, dir); err != nil {
 			fmt.Fprintf(w, "%s %s  %s\n", output.Red("✗"), name, output.Dim(err.Error()))
 			failed = append(failed, name)

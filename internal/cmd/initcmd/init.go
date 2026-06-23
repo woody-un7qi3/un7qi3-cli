@@ -20,11 +20,8 @@ import (
 	authpkg "github.com/un7qi3inc/un7qi3-cli/internal/auth"
 	"github.com/un7qi3inc/un7qi3-cli/internal/config"
 	"github.com/un7qi3inc/un7qi3-cli/internal/output"
+	"github.com/un7qi3inc/un7qi3-cli/internal/project"
 )
-
-// ghOrg is the marker we look for in a repo's git remote to recognize it as
-// one of ours during the workspace scan.
-const ghOrg = "un7qi3inc"
 
 const customChoice = "__custom__"
 
@@ -328,7 +325,7 @@ func scanRoot(root string, maxDepth int, counts map[string]int) {
 		if rerr != nil {
 			return nil
 		}
-		if bytes.Contains(data, []byte(ghOrg)) {
+		if bytes.Contains(data, []byte(project.Org())) {
 			counts[filepath.Dir(path)]++
 		}
 		// path is a repo — don't descend further into it.
