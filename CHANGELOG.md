@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.8...v0.1.9) (2026-06-23)
+
+
+### 기능
+
+* uq issue 명령 추가 (TUI 이슈 작성) ([#14](https://github.com/woody-un7qi3/un7qi3-cli/issues/14)) ([ed8582b](https://github.com/woody-un7qi3/un7qi3-cli/commit/ed8582bc135d6c1e1550555cb8c856725599a7c6))
+
 ## [0.1.8](https://github.com/woody-un7qi3/un7qi3-cli/compare/v0.1.7...v0.1.8) (2026-06-23)
 
 
