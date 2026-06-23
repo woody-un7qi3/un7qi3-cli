@@ -2,7 +2,7 @@
 
 <div align="center">
   <h1>UN7QI3 CLI (<code>uq</code>)</h1>
-  <p>온보딩 · 레포 · 로컬 실행 · 배포 · 운영을 묶은 un7qi3 사내 CLI</p>
+  <p>레포 · 로컬 실행 · 배포 · 운영을 묶은 un7qi3 사내 CLI</p>
   <a href="https://github.com/un7qi3inc/un7qi3-cli/releases">릴리스</a>
   &middot;
   <a href="https://github.com/un7qi3inc/un7qi3-cli/issues/new?template=bug_report.yml">버그 리포트</a>
@@ -66,13 +66,13 @@
 
 ## 소개
 
-`uq` 는 온보딩, 레포 셋업, 로컬 개발 서버 실행, 시크릿, 배포, 로그 스트리밍을 하나의 명령 트리로 묶은 un7qi3 사내 CLI다.
+`uq` 는 레포 셋업, 로컬 개발 서버 실행, 시크릿, 배포, 로그 스트리밍을 하나의 명령 트리로 묶은 un7qi3 사내 CLI다.
 
 모든 명령은 `--json` / `--dry-run` 같은 머신 친화 플래그를 제공해 Claude Code 같은 에이전트가 호출할 수 있고, TTY 에서는 컬러·TUI·대화형 선택을 제공해 사람이 직접 써도 된다.
 
 기능:
 
-- **온보딩** (`init` / `doctor`) — 필요한 툴·인증 점검, 워크스페이스 지정
+- **환경 점검** (`init` / `doctor`) — 필요한 툴·인증 점검, 워크스페이스 지정
 - **인증** (`auth`) — gh · aws · gcloud 로그인/로그아웃/상태를 한 명령으로
 - **레포** (`repo`) — un7qi3inc 조직 레포 목록·클론·풀 (gh 토큰으로 git 처리, SSH 키 불필요)
 - **로컬 실행** (`run`) — 레포별 node 버전·env·실행 명령 프로파일, 멀티프로세스 로그 합치기·패널 분할
