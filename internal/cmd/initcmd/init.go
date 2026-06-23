@@ -50,7 +50,7 @@ func NewCmd() *cobra.Command {
 	}, "\n")
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "uq 최초 설정 (인증 점검 + 워크스페이스 위치)",
+		Short: "uq 최초 설정 (인증 점검 / 워크스페이스 위치)",
 		Long:  long,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {

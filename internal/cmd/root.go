@@ -77,9 +77,8 @@ var rootCmd = &cobra.Command{
 	Long: strings.Join([]string{
 		output.Desc("uq는 un7qi3 사내 CLI입니다."),
 		"",
-		output.Desc("온보딩, 레포 셋업, 시크릿, 배포, 운영 작업을 위한"),
-		output.Desc("LLM 호출 가능한 결정론적 도구입니다. 주로 Claude Code가 호출하며,"),
-		output.Desc("사람도 사용할 수 있도록 친화적인 출력을 제공합니다."),
+		output.Desc("레포 · 로컬 실행 · 배포 · 로그 · 이슈 작업을 위한 결정론적 도구입니다."),
+		output.Desc("Claude Code 같은 에이전트가 호출하며, 사람도 쓰기 좋은 출력을 제공합니다."),
 		"",
 		output.Heading("자주 쓰는 명령"),
 		output.HelpExample("uq init", "최초 설정"),
