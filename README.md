@@ -102,11 +102,24 @@
 
 ### 사전 요구사항
 
-- **Go** 1.25+ (소스 빌드 시)
-- **gh** (GitHub CLI) — 레포/릴리스 접근에 필수
+- **gh** (GitHub CLI) — 레포/릴리스 접근에 필수. 미설치 시 `brew install gh` 후 `gh auth login`
+- **Go** 1.25+ — 소스 빌드(아래 방법 ②)에만 필요
 - 그 외 역할별 툴(aws, gcloud, node, docker 등)은 `uq doctor` 로 점검
 
 ### 설치
+
+#### ① 바이너리 (권장)
+
+Go·make 없이 릴리스 바이너리만 받는다. `gh` 인증만 있으면 된다.
+
+```bash
+gh api repos/un7qi3inc/un7qi3-cli/contents/install.sh \
+  -H "Accept: application/vnd.github.raw" | bash
+```
+
+[`install.sh`](install.sh) 가 OS·아키텍처를 판별해 맞는 자산(`uq_darwin_arm64` 등)을 `~/.local/bin/uq` 에 설치한다. `gh` 가 없거나 로그인 안 돼 있으면 안내 후 중단한다. 이후 업데이트는 `uq update`.
+
+#### ② 소스 빌드
 
 ```bash
 git clone https://github.com/un7qi3inc/un7qi3-cli.git
@@ -116,7 +129,9 @@ make install          # go build → ~/.local/bin/uq
 uq version            # 동작 확인
 ```
 
-`make install` 은 `PATH` 에 잡힐 수 있는 위치(`~/.local/bin`, `/usr/local/bin`, `~/go/bin`)의 기존 `uq` 를 먼저 제거해 중복 설치를 막는다. 설치 경로는 `make install PREFIX=/usr/local` 로 바꾼다. `~/.local/bin` 이 `PATH` 에 없으면 추가한다.
+`make install` 은 `PATH` 에 잡힐 수 있는 위치(`~/.local/bin`, `/usr/local/bin`, `~/go/bin`)의 기존 `uq` 를 먼저 제거해 중복 설치를 막는다. 설치 경로는 `make install PREFIX=/usr/local` 로 바꾼다.
+
+두 방법 모두 `~/.local/bin` 이 `PATH` 에 없으면 추가한다.
 
 ### 최초 설정
 
