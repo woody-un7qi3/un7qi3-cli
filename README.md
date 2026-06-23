@@ -66,7 +66,7 @@
 
 ## 소개
 
-`uq` 는 레포 셋업, 로컬 개발 서버 실행, 시크릿, 배포, 로그 스트리밍을 하나의 명령 트리로 묶은 un7qi3 사내 CLI다.
+`uq` 는 레포 셋업, 로컬 개발 서버 실행, 배포, 로그 스트리밍, 이슈 작성을 하나의 명령 트리로 묶은 un7qi3 사내 CLI다.
 
 명령에 따라 `--json`(머신 친화 출력) / `--dry-run`(실행 없이 계획만) 플래그를 제공해 Claude Code 같은 에이전트가 호출할 수 있고, TTY 에서는 컬러·TUI·대화형 선택을 제공해 사람이 직접 써도 된다.
 
@@ -77,7 +77,8 @@
 - **레포** (`repo`) — un7qi3inc 조직 레포 목록·클론·풀 (gh 토큰으로 git 처리, SSH 키 불필요)
 - **로컬 실행** (`run`) — 레포별 node 버전·env·실행 명령 프로파일, 멀티프로세스 로그 합치기·패널 분할
 - **배포** (`deploy`) — `.uq.yml` 매니페스트 기반 배포 (stub)
-- **로그** (`logs`) — Elastic Beanstalk 다중 인스턴스 로그 멀티플렉스 스트리밍 (TUI / 패널 분할 / grep)
+- **로그** (`log`) — Elastic Beanstalk 다중 인스턴스 로그 멀티플렉스 스트리밍 (TUI / 패널 분할 / grep)
+- **이슈** (`issue`) — TUI 폼으로 기능 요청 / 버그 리포트 작성 후 gh 로 제출
 - **자체 관리** (`version` / `update`) — 버전 표시, GitHub Releases 에서 제자리 업그레이드
 
 <p align="right"><a href="#readme-top">맨 위로</a></p>
@@ -159,15 +160,16 @@ uq doctor             # 역할별 툴 상태 점검
 | | `uq run <repo>[:profile]` | 로컬 개발 서버 실행 (`--bg`/`--fg`/`--split`/`--dry-run`) |
 | | `uq run profiles [--json]` | 등록된 실행 프로파일 나열 |
 | **배포 & 운영** | `uq deploy run <repo> --env <env>` | `.uq.yml` 기반 배포 (stub) |
-| | `uq logs <대상> [국가] [환경]` | EB 다중 인스턴스 로그 스트리밍 (TUI / `--split` / `--grep`) |
-| **도구** | `uq version [--json]` | 버전 / 커밋 / 빌드 시각 |
+| | `uq log <대상> [국가] [환경]` | EB 다중 인스턴스 로그 스트리밍 (TUI / `--split` / `--grep`) |
+| **도구** | `uq issue` | TUI 폼으로 이슈 작성 (기능 요청 / 버그 리포트, `--dry-run`) |
+| | `uq version [--json]` | 버전 / 커밋 / 빌드 시각 |
 | | `uq update` (= `upgrade`) | GitHub Releases 최신 버전으로 제자리 업그레이드 |
 | | `uq completion <shell>` | 셸 자동완성 스크립트 생성 (숨김) |
 
 ```bash
 uq run forceteller-app                 # default 프로파일로 로컬 실행
 uq run forceteller-admin --split       # back + front 패널 분할
-uq logs forceteller-api kr beta        # kr beta 전체 인스턴스 로그
+uq log forceteller-api kr beta         # kr beta 전체 인스턴스 로그
 uq doctor --role frontend --json       # 프런트 역할 툴 점검을 JSON 으로
 uq repo clone                          # 인자 없으면 TUI 다중 선택
 ```
@@ -227,9 +229,9 @@ runs:                          # uq run <repo>[:profile] 실행 프로파일
 │   ├── cmd/                    # 명령 정의 (cobra 트리)
 │   │   ├── root.go               # 루트 명령 + 그룹/템플릿 + 디스패처
 │   │   ├── init/ doctor/ auth/   # 시작하기 그룹
-│   │   ├── repo/ run/ env/       # 개발 워크플로 그룹
+│   │   ├── repo/ run/            # 개발 워크플로 그룹
 │   │   ├── deploy/ log/          # 배포 & 운영 그룹
-│   │   └── version/ update/ skills/  # 도구 그룹
+│   │   └── version/ update/ issue/  # 도구 그룹
 │   ├── auth/                   # gh / aws / gcloud 인증
 │   ├── run/                    # 로컬 실행 (node 매니저 탐색, 포트, 패널)
 │   ├── log/                    # 로그 멀티플렉서 + TUI 뷰어
